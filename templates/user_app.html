@@ -536,8 +536,8 @@
     const loadingOverlay = document.getElementById('loadingOverlay');
     const loadingStatus = document.getElementById('loadingStatus');
     const loadingTimer = document.getElementById('loadingTimer');
-    const shouldResetFormAfterSubmit = {{ 'true' if reset_form else 'false' }};
-    const masterDataCacheKey = 'kc_master_data::{{ kc_token }}';
+    const shouldResetFormAfterSubmit = {{ reset_form|tojson }};
+    const masterDataCacheKey = {{ ('kc_master_data::' ~ kc_token)|tojson }};
     const masterDataCacheTtlMs = 6 * 60 * 60 * 1000;
 
     let allBumoOptions = [];
@@ -847,6 +847,12 @@
         }
 
         if (!Array.isArray(cached.bumo_options) || !Array.isArray(cached.kc_area_options)) {
+          window.sessionStorage.removeItem(masterDataCacheKey);
+          return null;
+        }
+
+        if (cached.bumo_options.length === 0 || cached.kc_area_options.length === 0) {
+          window.sessionStorage.removeItem(masterDataCacheKey);
           return null;
         }
 
@@ -857,6 +863,9 @@
     }
 
     function saveMasterDataCache(data) {
+      if (!data || !Array.isArray(data.bumo_options) || !Array.isArray(data.kc_area_options)) return;
+      if (data.bumo_options.length === 0 || data.kc_area_options.length === 0) return;
+
       try {
         window.sessionStorage.setItem(masterDataCacheKey, JSON.stringify({
           saved_at: Date.now(),
@@ -870,8 +879,15 @@
       allBumoOptions = data.bumo_options || [];
       allKcAreaOptions = data.kc_area_options || [];
 
-      currentBumo.dataset.selected = "{{ '' if reset_form else request.form.get('current_bumo', '') }}";
-      kcArea.dataset.selected = "{{ '' if reset_form else request.form.get('kc_area', '') }}";
+      if (allBumoOptions.length === 0 || allKcAreaOptions.length === 0) {
+        refreshBumoOptions();
+        refreshKcAreaOptions();
+        setTokenStatus('Master data kosong. Coba refresh halaman atau login ulang.', 'error');
+        return;
+      }
+
+      currentBumo.dataset.selected = {{ ('' if reset_form else request.form.get('current_bumo', ''))|tojson }};
+      kcArea.dataset.selected = {{ ('' if reset_form else request.form.get('kc_area', ''))|tojson }};
 
       refreshBumoOptions();
       refreshKcAreaOptions();
