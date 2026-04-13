@@ -170,6 +170,16 @@
       font-size: 12px;
       color: #64748b;
       min-height: 18px;
+      line-height: 1.5;
+    }
+
+    .token-status.error-text {
+      color: #b91c1c;
+      font-weight: 600;
+    }
+
+    .token-status.ok-text {
+      color: #166534;
     }
 
     .search-input {
@@ -345,8 +355,7 @@
             <label>CMKT SP12</label>
             <select class="select" name="sp12_pack" id="sp12_pack">
               {% for pack_option in product_pack_options %}
-              <option value="{{ pack_option }}" {% if selected_sp12_pack==pack_option %}selected{% endif %}>{{
-                pack_option }}</option>
+              <option value="{{ pack_option }}" {% if selected_sp12_pack==pack_option %}selected{% endif %}>{{ pack_option }}</option>
               {% endfor %}
             </select>
             <div class="hint">Pilih jumlah pack CMKT SP12. Minimal 1 pack.</div>
@@ -399,6 +408,12 @@
     let allKcAreaOptions = [];
     let isSubmitting = false;
 
+    function setTokenStatus(message, type = '') {
+      tokenStatus.textContent = message || '';
+      tokenStatus.classList.remove('error-text', 'ok-text');
+      if (type === 'error') tokenStatus.classList.add('error-text');
+      if (type === 'ok') tokenStatus.classList.add('ok-text');
+    }
 
     function packLabelToQuantity(label) {
       const current = String(label || '').trim().toLowerCase();
@@ -472,7 +487,7 @@
     }
 
     async function loadMasterData() {
-      tokenStatus.textContent = 'Memuat BUMO dan KC Area...';
+      setTokenStatus('Memuat BUMO dan KC Area...');
 
       try {
         const response = await fetch('/api/master-data', {
@@ -483,15 +498,20 @@
           body: JSON.stringify({})
         });
 
+        let data = {};
+        try {
+          data = await response.json();
+        } catch (_err) {
+          data = {};
+        }
+
         if (response.status === 401) {
-          window.location.replace('/');
+          setTokenStatus('401: ' + (data.error || 'Session/token tidak valid'), 'error');
           return;
         }
 
-        const data = await response.json();
-
         if (!response.ok) {
-          throw new Error(data.error || 'Gagal load master data');
+          throw new Error(data.error || ('Gagal load master data. HTTP ' + response.status));
         }
 
         allBumoOptions = data.bumo_options || [];
@@ -503,11 +523,10 @@
         refreshBumoOptions();
         refreshKcAreaOptions();
 
-        tokenStatus.textContent = 'Master data berhasil dimuat.';
+        setTokenStatus('Master data berhasil dimuat.', 'ok');
       } catch (err) {
         console.error(err);
-        tokenStatus.textContent = 'Session tidak valid. Mengarahkan ke login...';
-        window.location.replace('/');
+        setTokenStatus('Gagal load master data: ' + (err.message || 'unknown error'), 'error');
       }
     }
 
