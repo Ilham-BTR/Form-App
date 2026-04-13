@@ -2,210 +2,553 @@
 <html lang="id">
 
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Form Survey Customer</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Form Survey Customer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
 
-    <style>
-        * {
-            box-sizing: border-box;
-        }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
 
-        body {
-            margin: 0;
-            font-family: Arial, Helvetica, sans-serif;
-            background: #f8fafc;
-            color: #0f172a;
-        }
+    .app {
+      max-width: 430px;
+      margin: 0 auto;
+      min-height: 100vh;
+      background: #f8fafc;
+      padding-bottom: 40px;
+    }
 
-        .app {
-            max-width: 430px;
-            margin: 0 auto;
-            min-height: 100vh;
-            padding-bottom: 40px;
-        }
+    .hero {
+      background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+      color: white;
+      padding: 24px 18px 36px;
+      border-bottom-left-radius: 28px;
+      border-bottom-right-radius: 28px;
+      box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
+    }
 
-        .hero {
-            background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
-            color: white;
-            padding: 24px 18px 36px;
-            border-bottom-left-radius: 28px;
-            border-bottom-right-radius: 28px;
-        }
+    .hero h1 {
+      margin: 0;
+      font-size: 24px;
+    }
 
-        .hero h1 {
-            margin: 0;
-            font-size: 24px;
-        }
+    .hero p {
+      margin: 10px 0 0;
+      font-size: 14px;
+      line-height: 1.5;
+      color: rgba(255, 255, 255, 0.78);
+    }
 
-        .hero p {
-            margin: 10px 0 0;
-            font-size: 14px;
-        }
+    .top-actions {
+      margin-top: 14px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
 
-        .top-actions {
-            margin-top: 14px;
-        }
+    .logout-btn {
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.14);
+      color: white;
+      text-decoration: none;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+    }
 
-        .logout-btn {
-            display: inline-block;
-            background: rgba(255, 255, 255, 0.15);
-            color: white;
-            text-decoration: none;
-            padding: 10px 14px;
-            border-radius: 12px;
-            font-size: 13px;
-        }
+    .form-wrap {
+      padding: 16px;
+      margin-top: -16px;
+    }
 
-        .form-wrap {
-            padding: 16px;
-            margin-top: -16px;
-        }
+    .card {
+      background: white;
+      border-radius: 24px;
+      padding: 18px;
+      box-shadow: 0 3px 14px rgba(15, 23, 42, 0.07);
+      margin-bottom: 14px;
+    }
 
-        .card {
-            background: white;
-            border-radius: 24px;
-            padding: 18px;
-            margin-bottom: 14px;
-            box-shadow: 0 3px 14px rgba(0, 0, 0, 0.07);
-        }
+    .card h2 {
+      margin: 0 0 16px;
+      font-size: 18px;
+    }
 
-        .field {
-            margin-bottom: 14px;
-        }
+    .field {
+      margin-bottom: 14px;
+    }
 
-        label {
-            display: block;
-            margin-bottom: 6px;
-            font-size: 13px;
-            font-weight: bold;
-        }
+    .field label {
+      display: block;
+      margin-bottom: 7px;
+      font-size: 13px;
+      font-weight: bold;
+      color: #334155;
+    }
 
-        .input,
-        .select,
-        .file {
-            width: 100%;
-            border: none;
-            background: #f1f5f9;
-            border-radius: 14px;
-            padding: 14px;
-            font-size: 14px;
-        }
+    .input,
+    .textarea,
+    .select,
+    .file {
+      width: 100%;
+      border: none;
+      outline: none;
+      background: #f1f5f9;
+      border-radius: 16px;
+      padding: 14px;
+      font-size: 14px;
+      color: #0f172a;
+    }
 
-        .btn {
-            width: 100%;
-            border: none;
-            background: linear-gradient(135deg, #0f172a, #1e293b);
-            color: white;
-            border-radius: 14px;
-            padding: 14px;
-            font-size: 15px;
-            font-weight: bold;
-            cursor: pointer;
-        }
+    .textarea {
+      min-height: 90px;
+      resize: vertical;
+      font-family: inherit;
+    }
 
-        .error {
-            background: #fee2e2;
-            color: #991b1b;
-            border-radius: 14px;
-            padding: 12px;
-            margin-bottom: 12px;
-        }
+    .row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
 
-        .success {
-            background: #dcfce7;
-            color: #166534;
-            border-radius: 14px;
-            padding: 12px;
-            margin-bottom: 12px;
-        }
-    </style>
+    .hint {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+
+    .success {
+      background: #dcfce7;
+      color: #166534;
+      border-radius: 18px;
+      padding: 14px;
+      font-size: 14px;
+      margin-bottom: 14px;
+    }
+
+    .success-detail {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      color: #166534;
+      border-radius: 18px;
+      padding: 14px;
+      font-size: 13px;
+      line-height: 1.7;
+      margin-bottom: 14px;
+    }
+
+    .error {
+      background: #fee2e2;
+      color: #991b1b;
+      border-radius: 18px;
+      padding: 14px;
+      font-size: 14px;
+      margin-bottom: 14px;
+      word-break: break-word;
+    }
+
+    .quota-box {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-radius: 18px;
+      padding: 14px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .token-status {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #64748b;
+      min-height: 18px;
+    }
+
+    .search-input {
+      margin-bottom: 8px;
+    }
+
+    .footer-note {
+      text-align: center;
+      color: #64748b;
+      font-size: 12px;
+      padding: 8px 20px 0;
+      line-height: 1.5;
+    }
+
+    .btn {
+      width: 100%;
+      border: none;
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      color: white;
+      border-radius: 14px;
+      padding: 14px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.25);
+    }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .submit-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255, 255, 255, 0.35);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      display: none;
+      flex-shrink: 0;
+    }
+
+    .submit-btn.loading .spinner {
+      display: inline-block;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @media (max-width: 380px) {
+      .row-2 {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
 </head>
 
 <body>
-
-    <div class="app">
-
-        <div class="hero">
-            <h1>Form Survey Customer</h1>
-            <p>Isi data lalu kirim</p>
-
-            <div class="top-actions">
-                <!-- ✅ hanya logout -->
-                <a href="/logout" class="logout-btn">Ganti Token</a>
-            </div>
-        </div>
-
-        <div class="form-wrap">
-
-            {% if error %}
-            <div class="error">{{ error }}</div>
-            {% endif %}
-
-            {% if success_message %}
-            <div class="success">{{ success_message }}</div>
-            {% endif %}
-
-            <form method="post" enctype="multipart/form-data">
-
-                <div class="card">
-                    <div class="field">
-                        <label>Nomor HP</label>
-                        <input class="input" name="phone_number" value="{{ assigned_phone_number }}" readonly>
-                    </div>
-
-                    <div class="field">
-                        <label>Nama Customer</label>
-                        <input class="input" name="customer_name" required>
-                    </div>
-
-                    <div class="field">
-                        <label>Age Range</label>
-                        <select class="select" name="age_range" required>
-                            {% for value,label in age_range_options %}
-                            <option value="{{value}}">{{label}}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-
-                    <div class="field">
-                        <label>BUMO</label>
-                        <select class="select" name="current_bumo" required></select>
-                    </div>
-
-                    <div class="field">
-                        <label>KC Area</label>
-                        <select class="select" name="kc_area" required></select>
-                    </div>
-
-                    <div class="field">
-                        <label>Paket</label>
-                        <select class="select" name="sp12_pack">
-                            <option>1 pack</option>
-                            <option>2 pack</option>
-                        </select>
-                    </div>
-
-                    <div class="field">
-                        <label>Foto Transaksi</label>
-                        <input class="file" type="file" name="transaction_photo" required>
-                    </div>
-
-                    <div class="field">
-                        <label>Screenshot Chat</label>
-                        <input class="file" type="file" name="chat_photo" required>
-                    </div>
-
-                </div>
-
-                <button class="btn">Submit</button>
-
-            </form>
-
-        </div>
-
+  <div class="app">
+    <div class="hero">
+      <h1>Form Survey Customer</h1>
+      <p>Isi data di bawah ini lalu kirim.</p>
+      <div class="top-actions">
+        <a href="/logout" class="logout-btn">Ganti Token</a>
+      </div>
     </div>
 
+    <div class="form-wrap">
+      {% if success_message %}
+      <div class="success">{{ success_message }}</div>
+      {% endif %}
+
+      {% if success_payload %}
+      <div class="success-detail">
+        Nomor: <strong>{{ success_payload.phone_number }}</strong><br>
+        Nama: <strong>{{ success_payload.customer_name }}</strong><br>
+        BUMO: <strong>{{ success_payload.current_bumo }}</strong><br>
+        KC Area: <strong>{{ success_payload.kc_area }}</strong><br>
+        Qty: <strong>{{ success_payload.sp12_pack }}</strong><br>
+        Waktu Submit: <strong>{{ success_payload.submitted_at }}</strong><br>
+        Transaction Photo: <strong>{{ success_payload.transaction_before }}</strong> → <strong>{{ success_payload.transaction_after }}</strong><br>
+        Chat Photo: <strong>{{ success_payload.chat_before }}</strong> → <strong>{{ success_payload.chat_after }}</strong>
+      </div>
+      {% endif %}
+
+      {% if error %}
+      <div class="error">{{ error }}</div>
+      {% endif %}
+
+      <div class="card">
+        <h2>Info Token</h2>
+        <div class="quota-box">
+          Nama KC: <strong>{{ kc_name }}</strong><br>
+          Maksimal submit per hari: <strong>{{ daily_limit }}</strong><br>
+          Terpakai hari ini: <strong>{{ used_today }}</strong><br>
+          Sisa kuota hari ini: <strong>{{ remaining_today }}</strong>
+        </div>
+        <div class="token-status" id="tokenStatus"></div>
+      </div>
+
+      <form method="post" enctype="multipart/form-data" id="surveyForm">
+        <div class="card">
+          <h2>Data Customer</h2>
+
+          <div class="field">
+            <label>Nomor HP</label>
+            <input class="input" name="phone_number"
+              value="{{ assigned_phone_number or request.form.get('phone_number', '') }}"
+              placeholder="Contoh: 08123456789" readonly>
+            <div class="hint">Nomor diambil otomatis dari database customer.</div>
+          </div>
+
+          <div class="field">
+            <label>Nama Customer</label>
+            <input class="input" name="customer_name" value="{{ request.form.get('customer_name', '') }}"
+              placeholder="Masukkan nama customer">
+          </div>
+
+          <div class="field">
+            <label>Age Range</label>
+            <select class="select" name="age_range" id="age_range">
+              <option value="">Pilih umur</option>
+              {% for age_value, age_label in age_range_options %}
+              <option value="{{ age_value }}" {% if selected_age_range==age_value %}selected{% endif %}>{{ age_label }}</option>
+              {% endfor %}
+            </select>
+            <input type="hidden" name="has_purchased" value="true">
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Data Survey</h2>
+
+          <div class="field">
+            <label>Cari BUMO</label>
+            <input class="input search-input" type="text" id="bumo_search" placeholder="Cari BUMO...">
+            <select class="select" name="current_bumo" id="current_bumo">
+              <option value="">Pilih BUMO</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Cari KC Area</label>
+            <input class="input search-input" type="text" id="kc_area_search" placeholder="Cari KC Area...">
+            <select class="select" name="kc_area" id="kc_area">
+              <option value="">Pilih KC Area</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>CMKT SP12</label>
+            <select class="select" name="sp12_pack" id="sp12_pack">
+              {% for pack_option in product_pack_options %}
+              <option value="{{ pack_option }}" {% if selected_sp12_pack==pack_option %}selected{% endif %}>{{
+                pack_option }}</option>
+              {% endfor %}
+            </select>
+            <div class="hint">Pilih jumlah pack CMKT SP12. Minimal 1 pack.</div>
+          </div>
+
+          <input type="hidden" name="product_transactions" id="product_transactions" value="">
+        </div>
+
+        <div class="card">
+          <h2>Upload Bukti</h2>
+
+          <div class="field">
+            <label>Transaction Photo</label>
+            <input class="file" type="file" name="transaction_photo" accept="image/*" required>
+            <div class="hint">Wajib upload foto transaksi. File di atas 800 KB akan dikompres otomatis sebelum dikirim.</div>
+          </div>
+
+          <div class="field">
+            <label>Chat Photo</label>
+            <input class="file" type="file" name="chat_photo" accept="image/*" required>
+            <div class="hint">Wajib upload screenshot chat. File di atas 800 KB akan dikompres otomatis sebelum dikirim.</div>
+          </div>
+        </div>
+
+        <button class="btn submit-btn" type="submit" id="submitBtn">
+          <span class="spinner" id="submitSpinner"></span>
+          <span id="submitBtnText">Kirim Survey</span>
+        </button>
+      </form>
+
+      <div class="footer-note">
+        Jika hari berganti, user harus login ulang dengan KC token.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const currentBumo = document.getElementById('current_bumo');
+    const kcArea = document.getElementById('kc_area');
+    const bumoSearch = document.getElementById('bumo_search');
+    const kcAreaSearch = document.getElementById('kc_area_search');
+    const tokenStatus = document.getElementById('tokenStatus');
+    const surveyForm = document.getElementById('surveyForm');
+    const sp12Pack = document.getElementById('sp12_pack');
+    const productTransactionsInput = document.getElementById('product_transactions');
+    const submitBtn = document.getElementById('submitBtn');
+    const submitBtnText = document.getElementById('submitBtnText');
+
+    let allBumoOptions = [];
+    let allKcAreaOptions = [];
+    let isSubmitting = false;
+
+
+    function packLabelToQuantity(label) {
+      const current = String(label || '').trim().toLowerCase();
+      if (current.startsWith('0')) return 0;
+      if (current.startsWith('1')) return 1;
+      if (current.startsWith('2')) return 2;
+      return 0;
+    }
+
+    function buildProductTransactions() {
+      const items = [];
+      const sp12Qty = packLabelToQuantity(sp12Pack ? sp12Pack.value : '0 pack');
+
+      if (sp12Qty > 0) {
+        items.push({ product_name: 'CMKT SP12', quantity: sp12Qty });
+      }
+
+      if (productTransactionsInput) {
+        productTransactionsInput.value = JSON.stringify(items);
+      }
+
+      return items;
+    }
+
+    function renderOptions(selectEl, items, valueKey, labelKey, firstLabel, selectedValue) {
+      selectEl.innerHTML = '';
+
+      const firstOption = document.createElement('option');
+      firstOption.value = '';
+      firstOption.textContent = firstLabel;
+      selectEl.appendChild(firstOption);
+
+      items.forEach((item) => {
+        const opt = document.createElement('option');
+        opt.value = item[valueKey];
+        opt.textContent = item[labelKey];
+        if (selectedValue && selectedValue === item[valueKey]) {
+          opt.selected = true;
+        }
+        selectEl.appendChild(opt);
+      });
+    }
+
+    function filterOptions(keyword, items, labelKey) {
+      const q = (keyword || '').trim().toLowerCase();
+      if (!q) return items;
+      return items.filter(item => String(item[labelKey]).toLowerCase().includes(q));
+    }
+
+    function refreshBumoOptions() {
+      const filtered = filterOptions(bumoSearch.value, allBumoOptions, 'label');
+      renderOptions(currentBumo, filtered, 'label', 'label', 'Pilih BUMO', currentBumo.dataset.selected || '');
+    }
+
+    function refreshKcAreaOptions() {
+      const filtered = filterOptions(kcAreaSearch.value, allKcAreaOptions, 'label');
+      renderOptions(kcArea, filtered, 'value', 'label', 'Pilih KC Area', kcArea.dataset.selected || '');
+    }
+
+    function setSubmitLoading(isLoading) {
+      if (!submitBtn) return;
+      submitBtn.disabled = isLoading;
+
+      if (isLoading) {
+        submitBtn.classList.add('loading');
+        submitBtnText.textContent = 'Mengirim...';
+      } else {
+        submitBtn.classList.remove('loading');
+        submitBtnText.textContent = 'Kirim Survey';
+      }
+    }
+
+    async function loadMasterData() {
+      tokenStatus.textContent = 'Memuat BUMO dan KC Area...';
+
+      try {
+        const response = await fetch('/api/master-data', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({})
+        });
+
+        if (response.status === 401) {
+          window.location.replace('/');
+          return;
+        }
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Gagal load master data');
+        }
+
+        allBumoOptions = data.bumo_options || [];
+        allKcAreaOptions = data.kc_area_options || [];
+
+        currentBumo.dataset.selected = "{{ request.form.get('current_bumo', '') }}";
+        kcArea.dataset.selected = "{{ request.form.get('kc_area', '') }}";
+
+        refreshBumoOptions();
+        refreshKcAreaOptions();
+
+        tokenStatus.textContent = 'Master data berhasil dimuat.';
+      } catch (err) {
+        console.error(err);
+        tokenStatus.textContent = 'Session tidak valid. Mengarahkan ke login...';
+        window.location.replace('/');
+      }
+    }
+
+    if (bumoSearch) {
+      bumoSearch.addEventListener('input', refreshBumoOptions);
+    }
+
+    if (kcAreaSearch) {
+      kcAreaSearch.addEventListener('input', refreshKcAreaOptions);
+    }
+
+    if (sp12Pack) {
+      sp12Pack.addEventListener('change', buildProductTransactions);
+    }
+
+    if (surveyForm) {
+      surveyForm.addEventListener('submit', function (e) {
+        const products = buildProductTransactions();
+        if (products.length === 0) {
+          e.preventDefault();
+          alert('Minimal CMKT SP12 harus 1 pack.');
+          return;
+        }
+
+        if (isSubmitting) {
+          e.preventDefault();
+          return;
+        }
+
+        isSubmitting = true;
+        setSubmitLoading(true);
+      });
+    }
+
+    window.addEventListener('DOMContentLoaded', function () {
+      buildProductTransactions();
+      loadMasterData();
+      const nameInput = document.querySelector('input[name="customer_name"]');
+      if (nameInput) nameInput.focus();
+    });
+  </script>
 </body>
 
 </html>
