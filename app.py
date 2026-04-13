@@ -2232,8 +2232,7 @@ def admin_submissions():
         selected_limit=str(limit),
     )
 
+init_db()
 
 if __name__ == "__main__":
-    init_db()
-    seed_kc_tokens()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+app.run(host="0.0.0.0", port=5000, debug=True)
