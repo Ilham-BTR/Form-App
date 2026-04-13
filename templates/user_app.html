@@ -435,7 +435,6 @@
 
     function packLabelToQuantity(label) {
       const current = String(label || '').trim().toLowerCase();
-      if (current.startsWith('0')) return 0;
       if (current.startsWith('1')) return 1;
       if (current.startsWith('2')) return 2;
       return 0;
@@ -443,7 +442,7 @@
 
     function buildProductTransactions() {
       const items = [];
-      const sp12Qty = packLabelToQuantity(sp12Pack ? sp12Pack.value : '0 pack');
+      const sp12Qty = packLabelToQuantity(sp12Pack ? sp12Pack.value : '1 pack');
 
       if (sp12Qty > 0) {
         items.push({ product_name: 'CMKT SP12', quantity: sp12Qty });
