@@ -1802,6 +1802,14 @@ def api_master_data():
             "bumo_options": bumo_options,
             "kc_area_options": kc_area_options,
         })
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code if e.response is not None else None
+        if status_code == 401:
+            logger.warning("api_master_data bearer token expired while loading BUMO/KC Area")
+            return jsonify({"error": "Token bearer expired"}), 401
+
+        logger.exception("api_master_data http error")
+        return jsonify({"error": str(e)}), status_code or 500
     except Exception as e:
         logger.exception("api_master_data error")
         return jsonify({"error": str(e)}), 500

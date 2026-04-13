@@ -974,7 +974,7 @@
         }
 
         if (response.status === 401) {
-          setTokenStatus('401: ' + (data.error || 'Session/token tidak valid'), 'error');
+          setTokenStatus(data.error || 'Session/token tidak valid', 'error');
           return;
         }
 
