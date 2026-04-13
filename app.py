@@ -49,6 +49,7 @@ if not logger.handlers:
 
 
 APP_HMAC_SECRET = require_env("APP_HMAC_SECRET")
+MASTERDATA_HMAC_SECRET = os.environ.get("MASTERDATA_HMAC_SECRET", APP_HMAC_SECRET).strip()
 DEFAULT_BASE_URL = os.environ.get(
     "DEFAULT_BASE_URL",
     "https://ca-msfsax05-22-be-letscml-prd.mangosmoke-bb4ae1b7.southeastasia.azurecontainerapps.io",
@@ -177,8 +178,9 @@ def seed_kc_tokens():
 
     for kc_token, kc_name, bearer_token, daily_limit, is_active in sample_tokens:
         cur.execute("""
-            INSERT OR IGNORE INTO valid_kc_tokens (kc_token, kc_name, bearer_token, daily_limit, is_active)
+            INSERT INTO valid_kc_tokens (kc_token, kc_name, bearer_token, daily_limit, is_active)
             VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (kc_token) DO NOTHING
         """, (kc_token, kc_name, bearer_token, daily_limit, is_active))
 
     conn.commit()
@@ -1251,6 +1253,10 @@ def build_browser_style_headers(timestamp, hash_value, bearer_token=""):
     return headers
 
 
+def build_browser_style_headers_for_master(timestamp, hash_value, bearer_token=""):
+    return build_browser_style_headers(timestamp, hash_value, bearer_token)
+
+
 def guess_mime_type(filepath):
     mime_type, _ = mimetypes.guess_type(filepath)
     return mime_type or "application/octet-stream"
@@ -1376,15 +1382,15 @@ def fetch_bumo_options(bearer_token):
         return []
 
     timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-    hash_val = build_get_hash(APP_HMAC_SECRET, DEFAULT_BUMO_ENDPOINT, timestamp)
-    headers = build_headers(timestamp, hash_val, bearer_token)
+    hash_val = build_get_hash(MASTERDATA_HMAC_SECRET, DEFAULT_BUMO_ENDPOINT, timestamp)
+    headers = build_browser_style_headers_for_master(timestamp, hash_val, bearer_token)
 
     url = DEFAULT_BASE_URL.rstrip("/") + DEFAULT_BUMO_ENDPOINT
-    response = requests.get(url, headers=headers, timeout=30, verify=True)
+    response = requests.get(url, headers=headers, timeout=30, verify=False)
     response.raise_for_status()
 
     data = response.json()
-    items = data.get("data", {}).get("data", [])
+    items = data["data"]["data"]
     return [{"label": item["name"], "value": item["name"]} for item in items]
 
 
@@ -1393,19 +1399,20 @@ def fetch_kc_area_options(bearer_token):
         return []
 
     timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-    hash_val = build_get_hash(APP_HMAC_SECRET, DEFAULT_KC_AREA_ENDPOINT, timestamp)
-    headers = build_headers(timestamp, hash_val, bearer_token)
+    hash_val = build_get_hash(MASTERDATA_HMAC_SECRET, DEFAULT_KC_AREA_ENDPOINT, timestamp)
+    headers = build_browser_style_headers_for_master(timestamp, hash_val, bearer_token)
 
     url = DEFAULT_BASE_URL.rstrip("/") + DEFAULT_KC_AREA_ENDPOINT
-    response = requests.get(url, headers=headers, timeout=30, verify=True)
+    response = requests.get(url, headers=headers, timeout=30, verify=False)
     response.raise_for_status()
 
     data = response.json()
-    items = data.get("data", {}).get("areas", [])
+    items = data["data"]["areas"]
     return [{"label": item["name"], "value": str(item["id"])} for item in items]
 
 
 def send_survey_request(
+
     secret,
     base_url,
     endpoint,
@@ -1487,7 +1494,7 @@ def send_survey_request(
                 data=multipart_body,
                 headers=headers,
                 timeout=60,
-                verify=True
+                verify=False
             )
 
             try:
@@ -1621,6 +1628,7 @@ def api_master_data():
             "kc_area_options": kc_area_options,
         })
     except Exception as e:
+        logger.exception("api_master_data error")
         return jsonify({"error": str(e)}), 500
 
 
