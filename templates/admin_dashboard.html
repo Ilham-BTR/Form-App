@@ -94,7 +94,7 @@
 
     .stats {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: 14px;
       margin-bottom: 18px;
     }
@@ -242,6 +242,10 @@
       <div class="card">
         <h3>Likely Success</h3>
         <div class="big">{{ submission_counts.LIKELY_SUCCESS if submission_counts else 0 }}</div>
+      </div>
+      <div class="card">
+        <h3>Invalid</h3>
+        <div class="big">{{ submission_counts.INVALID if submission_counts else 0 }}</div>
       </div>
       <div class="card">
         <h3>Failed</h3>

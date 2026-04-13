@@ -156,6 +156,42 @@
       word-break: break-word;
     }
 
+    .error-title {
+      margin: 0 0 6px;
+      font-weight: 700;
+    }
+
+    .error-message {
+      margin: 0;
+      line-height: 1.5;
+    }
+
+    .error-detail {
+      margin-top: 10px;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .error-detail summary {
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .error-actions {
+      margin-top: 12px;
+    }
+
+    .retry-link {
+      display: inline-block;
+      background: #991b1b;
+      color: white;
+      text-decoration: none;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
     .quota-box {
       background: #eff6ff;
       color: #1d4ed8;
@@ -245,6 +281,66 @@
       display: inline-block;
     }
 
+    .loading-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(2, 6, 23, 0.78);
+    }
+
+    .loading-overlay.hidden {
+      display: none;
+    }
+
+    .loading-dialog {
+      width: min(100%, 320px);
+      background: white;
+      color: #0f172a;
+      border-radius: 8px;
+      padding: 20px;
+      text-align: center;
+      box-shadow: 0 20px 50px rgba(2, 6, 23, 0.35);
+    }
+
+    .loading-spinner {
+      width: 42px;
+      height: 42px;
+      margin: 0 auto 14px;
+      border: 4px solid #e2e8f0;
+      border-top-color: #0f172a;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .loading-title {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .loading-status {
+      margin: 8px 0 0;
+      color: #475569;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .loading-timer {
+      margin-top: 12px;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: 0;
+      font-variant-numeric: tabular-nums;
+    }
+
+    body.loading-active {
+      overflow: hidden;
+    }
+
     @keyframes spin {
       to {
         transform: rotate(360deg);
@@ -288,7 +384,23 @@
       {% endif %}
 
       {% if error %}
-      <div class="error">{{ error }}</div>
+      <div class="error">
+        {% if can_retry_failed_submit %}
+        <p class="error-title">Submit belum berhasil</p>
+        <p class="error-message">{{ error }}</p>
+        <div class="error-actions">
+          <a class="retry-link" href="#surveyForm">Coba lagi</a>
+        </div>
+        {% if error_detail %}
+        <details class="error-detail">
+          <summary>Detail teknis</summary>
+          <div>{{ error_detail }}</div>
+        </details>
+        {% endif %}
+        {% else %}
+        {{ error }}
+        {% endif %}
+      </div>
       {% endif %}
 
       <div class="card">
@@ -308,30 +420,21 @@
 
           <div class="field">
             <label>Nomor HP</label>
-            <input
-              class="input"
-              name="phone_number"
-              value="{{ assigned_phone_number or request.form.get('phone_number', '') }}"
-              placeholder="Contoh: 08123456789"
-              readonly
-            >
+            <input class="input" name="phone_number"
+              value="{{ assigned_phone_number or ('' if reset_form else request.form.get('phone_number', '')) }}"
+              placeholder="Contoh: 08123456789" readonly>
             <div class="hint">Nomor diambil otomatis dari database customer.</div>
           </div>
 
           <div class="field">
             <label>Nama Customer</label>
-            <input
-              class="input"
-              name="customer_name"
-              value="{{ request.form.get('customer_name', '') }}"
-              placeholder="Masukkan nama customer"
-              required
-            >
+            <input class="input" name="customer_name" value="{{ '' if reset_form else request.form.get('customer_name', '') }}"
+              placeholder="Masukkan nama customer">
           </div>
 
           <div class="field">
             <label>Age Range</label>
-            <select class="select" name="age_range" id="age_range" required>
+            <select class="select" name="age_range" id="age_range">
               <option value="">Pilih umur</option>
               {% for age_value, age_label in age_range_options %}
               <option value="{{ age_value }}" {% if selected_age_range==age_value %}selected{% endif %}>{{ age_label }}</option>
@@ -347,7 +450,7 @@
           <div class="field">
             <label>Cari BUMO</label>
             <input class="input search-input" type="text" id="bumo_search" placeholder="Cari BUMO...">
-            <select class="select" name="current_bumo" id="current_bumo" required>
+            <select class="select" name="current_bumo" id="current_bumo">
               <option value="">Pilih BUMO</option>
             </select>
           </div>
@@ -355,21 +458,21 @@
           <div class="field">
             <label>Cari KC Area</label>
             <input class="input search-input" type="text" id="kc_area_search" placeholder="Cari KC Area...">
-            <select class="select" name="kc_area" id="kc_area" required>
+            <select class="select" name="kc_area" id="kc_area">
               <option value="">Pilih KC Area</option>
             </select>
           </div>
 
           <div class="field">
             <label>CMKT SP12</label>
-            <select class="select" name="sp12_pack" id="sp12_pack" required>
+            <select class="select" name="sp12_pack" id="sp12_pack">
               {% for pack_option in product_pack_options %}
               <option value="{{ pack_option }}" {% if selected_sp12_pack==pack_option %}selected{% endif %}>{{ pack_option }}</option>
               {% endfor %}
             </select>
             <div class="hint">Pilih jumlah pack CMKT SP12. Minimal 1 pack.</div>
           </div>
-
+          
           <div class="field">
             <label>Lighter</label>
             <select class="select" id="lighter">
@@ -410,6 +513,15 @@
     </div>
   </div>
 
+  <div class="loading-overlay hidden" id="loadingOverlay" aria-live="polite" aria-modal="true" aria-hidden="true" role="dialog">
+    <div class="loading-dialog">
+      <div class="loading-spinner" aria-hidden="true"></div>
+      <p class="loading-title">Mengirim survey</p>
+      <p class="loading-status" id="loadingStatus">Mohon tunggu, proses submit sedang berjalan.</p>
+      <div class="loading-timer" id="loadingTimer">00:00</div>
+    </div>
+  </div>
+
   <script>
     const currentBumo = document.getElementById('current_bumo');
     const kcArea = document.getElementById('kc_area');
@@ -421,10 +533,24 @@
     const productTransactionsInput = document.getElementById('product_transactions');
     const submitBtn = document.getElementById('submitBtn');
     const submitBtnText = document.getElementById('submitBtnText');
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    const loadingStatus = document.getElementById('loadingStatus');
+    const loadingTimer = document.getElementById('loadingTimer');
+    const shouldResetFormAfterSubmit = {{ 'true' if reset_form else 'false' }};
+    const masterDataCacheKey = 'kc_master_data::{{ kc_token }}';
+    const masterDataCacheTtlMs = 6 * 60 * 60 * 1000;
 
     let allBumoOptions = [];
     let allKcAreaOptions = [];
     let isSubmitting = false;
+    let loadingStartedAt = 0;
+    let loadingTimerId = null;
+    let allowNativeSubmit = false;
+    const imageCompressionTasks = new Map();
+    const IMAGE_ORIGINAL_LIMIT_BYTES = 800 * 1024;
+    const IMAGE_TARGET_MAX_BYTES = 800 * 1024;
+    const IMAGE_TARGET_MIN_BYTES = 500 * 1024;
+    const IMAGE_MAX_DIMENSIONS = [1600, 1280];
 
     function setTokenStatus(message, type = '') {
       tokenStatus.textContent = message || '';
@@ -435,6 +561,7 @@
 
     function packLabelToQuantity(label) {
       const current = String(label || '').trim().toLowerCase();
+      if (current.startsWith('0')) return 0;
       if (current.startsWith('1')) return 1;
       if (current.startsWith('2')) return 2;
       return 0;
@@ -442,7 +569,7 @@
 
     function buildProductTransactions() {
       const items = [];
-      const sp12Qty = packLabelToQuantity(sp12Pack ? sp12Pack.value : '1 pack');
+      const sp12Qty = packLabelToQuantity(sp12Pack ? sp12Pack.value : '0 pack');
 
       if (sp12Qty > 0) {
         items.push({ product_name: 'CMKT SP12', quantity: sp12Qty });
@@ -503,7 +630,315 @@
       }
     }
 
+    function setFormLocked(isLocked) {
+      if (!surveyForm) return;
+
+      const controls = surveyForm.querySelectorAll('input, select, textarea, button');
+      controls.forEach((control) => {
+        control.disabled = isLocked;
+      });
+    }
+
+    function formatBytes(bytes) {
+      return `${Math.round((bytes || 0) / 1024)} KB`;
+    }
+
+    function getImageFileInputs() {
+      if (!surveyForm) return [];
+      return Array.from(surveyForm.querySelectorAll('input[type="file"][accept*="image"]'));
+    }
+
+    function shouldCompressImage(file) {
+      return file && file.type && file.type.startsWith('image/') && file.size > IMAGE_ORIGINAL_LIMIT_BYTES;
+    }
+
+    function makeCompressedFileName(filename) {
+      const cleanName = String(filename || 'upload').replace(/\.[^.]+$/, '');
+      return `${cleanName || 'upload'}-compressed.jpg`;
+    }
+
+    function loadImageFromFile(file) {
+      return new Promise((resolve, reject) => {
+        const image = new Image();
+        const url = URL.createObjectURL(file);
+
+        image.onload = function () {
+          URL.revokeObjectURL(url);
+          resolve(image);
+        };
+
+        image.onerror = function () {
+          URL.revokeObjectURL(url);
+          reject(new Error('Gagal membaca gambar.'));
+        };
+
+        image.src = url;
+      });
+    }
+
+    function buildImageCanvas(image, maxDimension) {
+      const longestSide = Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height);
+      const scale = longestSide > maxDimension ? maxDimension / longestSide : 1;
+      const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+      const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+
+      canvas.width = width;
+      canvas.height = height;
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, width, height);
+      context.drawImage(image, 0, 0, width, height);
+      return canvas;
+    }
+
+    function canvasToJpegBlob(canvas, quality) {
+      return new Promise((resolve) => {
+        canvas.toBlob((blob) => resolve(blob), 'image/jpeg', quality);
+      });
+    }
+
+    async function compressImageFile(file) {
+      if (!shouldCompressImage(file)) return file;
+
+      const image = await loadImageFromFile(file);
+      let bestBlob = null;
+
+      for (const maxDimension of IMAGE_MAX_DIMENSIONS) {
+        const canvas = buildImageCanvas(image, maxDimension);
+
+        for (let quality = 0.95; quality >= 0.45; quality -= 0.07) {
+          const blob = await canvasToJpegBlob(canvas, Number(quality.toFixed(2)));
+          if (!blob) continue;
+
+          if (!bestBlob || blob.size < bestBlob.size) {
+            bestBlob = blob;
+          }
+
+          if (blob.size <= IMAGE_TARGET_MAX_BYTES && blob.size >= IMAGE_TARGET_MIN_BYTES) {
+            bestBlob = blob;
+            return new File(
+              [bestBlob],
+              makeCompressedFileName(file.name),
+              { type: 'image/jpeg', lastModified: Date.now() }
+            );
+          }
+
+          if (blob.size < IMAGE_TARGET_MIN_BYTES) {
+            bestBlob = blob;
+            return new File(
+              [bestBlob],
+              makeCompressedFileName(file.name),
+              { type: 'image/jpeg', lastModified: Date.now() }
+            );
+          }
+        }
+      }
+
+      if (bestBlob && bestBlob.size < file.size) {
+        return new File(
+          [bestBlob],
+          makeCompressedFileName(file.name),
+          { type: 'image/jpeg', lastModified: Date.now() }
+        );
+      }
+
+      return file;
+    }
+
+    function setFileInputFile(input, file) {
+      if (!input || !file || typeof DataTransfer === 'undefined') return false;
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      input.files = dataTransfer.files;
+      return true;
+    }
+
+    async function compressImageInput(input) {
+      const file = input && input.files && input.files[0];
+      if (!shouldCompressImage(file)) return file || null;
+
+      setTokenStatus(`Mengompres ${file.name} (${formatBytes(file.size)})...`);
+      const compressedFile = await compressImageFile(file);
+
+      if (compressedFile !== file && setFileInputFile(input, compressedFile)) {
+        input.dataset.compressed = '1';
+        input.dataset.originalSize = String(file.size);
+        input.dataset.compressedSize = String(compressedFile.size);
+        setTokenStatus(
+          `${file.name} dikompres dari ${formatBytes(file.size)} ke ${formatBytes(compressedFile.size)}.`,
+          'ok'
+        );
+        return compressedFile;
+      }
+
+      setTokenStatus(`${file.name} tetap memakai file asli (${formatBytes(file.size)}).`, 'ok');
+      return file;
+    }
+
+    function queueImageCompression(input) {
+      if (!input) return Promise.resolve(null);
+      const existingTask = imageCompressionTasks.get(input);
+      if (existingTask) return existingTask;
+
+      const task = compressImageInput(input)
+        .catch((error) => {
+          setTokenStatus('Gagal kompres gambar: ' + (error.message || 'unknown error'), 'error');
+          throw error;
+        })
+        .finally(() => {
+          imageCompressionTasks.delete(input);
+        });
+
+      imageCompressionTasks.set(input, task);
+      return task;
+    }
+
+    async function compressAllImageInputs() {
+      const tasks = getImageFileInputs().map((input) => queueImageCompression(input));
+      await Promise.all(tasks);
+    }
+
+    function resetFileInputs() {
+      getImageFileInputs().forEach((input) => {
+        input.value = '';
+        input.dataset.compressed = '';
+        input.dataset.originalSize = '';
+        input.dataset.compressedSize = '';
+      });
+      imageCompressionTasks.clear();
+    }
+
+    function resetFilePreviews() {
+      document.querySelectorAll('[data-file-preview], .file-preview, .preview-file').forEach((preview) => {
+        preview.innerHTML = '';
+        preview.classList.add('hidden');
+      });
+    }
+
+    function resetSurveyFormView() {
+      if (!surveyForm) return;
+
+      surveyForm.reset();
+      bumoSearch.value = '';
+      kcAreaSearch.value = '';
+      currentBumo.dataset.selected = '';
+      kcArea.dataset.selected = '';
+      if (currentBumo) currentBumo.selectedIndex = 0;
+      if (kcArea) kcArea.selectedIndex = 0;
+      resetFileInputs();
+      resetFilePreviews();
+      buildProductTransactions();
+
+      if (allBumoOptions.length) refreshBumoOptions();
+      if (allKcAreaOptions.length) refreshKcAreaOptions();
+    }
+
+    function getCachedMasterData() {
+      try {
+        const raw = window.sessionStorage.getItem(masterDataCacheKey);
+        if (!raw) return null;
+
+        const cached = JSON.parse(raw);
+        if (!cached || !cached.saved_at) return null;
+        if (Date.now() - cached.saved_at > masterDataCacheTtlMs) {
+          window.sessionStorage.removeItem(masterDataCacheKey);
+          return null;
+        }
+
+        if (!Array.isArray(cached.bumo_options) || !Array.isArray(cached.kc_area_options)) {
+          return null;
+        }
+
+        return cached;
+      } catch (_err) {
+        return null;
+      }
+    }
+
+    function saveMasterDataCache(data) {
+      try {
+        window.sessionStorage.setItem(masterDataCacheKey, JSON.stringify({
+          saved_at: Date.now(),
+          bumo_options: data.bumo_options || [],
+          kc_area_options: data.kc_area_options || [],
+        }));
+      } catch (_err) {}
+    }
+
+    function applyMasterData(data, sourceLabel) {
+      allBumoOptions = data.bumo_options || [];
+      allKcAreaOptions = data.kc_area_options || [];
+
+      currentBumo.dataset.selected = "{{ '' if reset_form else request.form.get('current_bumo', '') }}";
+      kcArea.dataset.selected = "{{ '' if reset_form else request.form.get('kc_area', '') }}";
+
+      refreshBumoOptions();
+      refreshKcAreaOptions();
+      if (shouldResetFormAfterSubmit) resetSurveyFormView();
+      setTokenStatus(sourceLabel, 'ok');
+    }
+
+    function hasPendingImageCompression() {
+      return getImageFileInputs().some((input) => {
+        const file = input && input.files && input.files[0];
+        return shouldCompressImage(file);
+      }) || imageCompressionTasks.size > 0;
+    }
+
+    function formatElapsedTime(totalSeconds) {
+      const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+      const seconds = String(totalSeconds % 60).padStart(2, '0');
+      return `${minutes}:${seconds}`;
+    }
+
+    function updateLoadingTimer() {
+      if (!loadingTimer || !loadingStartedAt) return;
+      const elapsedSeconds = Math.floor((Date.now() - loadingStartedAt) / 1000);
+      loadingTimer.textContent = formatElapsedTime(elapsedSeconds);
+
+      if (loadingStatus) {
+        if (elapsedSeconds >= 20) {
+          loadingStatus.textContent = 'Masih diproses. Sistem mungkin sedang retry otomatis.';
+        } else if (elapsedSeconds >= 8) {
+          loadingStatus.textContent = 'Menunggu response server. Jangan tutup halaman ini.';
+        }
+      }
+    }
+
+    function showLoadingOverlay() {
+      if (!loadingOverlay) return;
+      loadingStartedAt = Date.now();
+      if (loadingTimer) loadingTimer.textContent = '00:00';
+      if (loadingStatus) loadingStatus.textContent = 'Mohon tunggu, proses submit sedang berjalan.';
+      loadingOverlay.removeAttribute('aria-hidden');
+      document.body.classList.add('loading-active');
+      loadingOverlay.classList.remove('hidden');
+      updateLoadingTimer();
+      if (loadingTimerId) window.clearInterval(loadingTimerId);
+      loadingTimerId = window.setInterval(updateLoadingTimer, 1000);
+    }
+
+    function hideLoadingOverlay() {
+      if (loadingTimerId) {
+        window.clearInterval(loadingTimerId);
+        loadingTimerId = null;
+      }
+      loadingStartedAt = 0;
+      document.body.classList.remove('loading-active');
+      if (loadingOverlay) {
+        loadingOverlay.classList.add('hidden');
+        loadingOverlay.setAttribute('aria-hidden', 'true');
+      }
+    }
+
     async function loadMasterData() {
+      const cachedMasterData = getCachedMasterData();
+      if (cachedMasterData) {
+        applyMasterData(cachedMasterData, 'Master data dimuat dari cache.');
+        return;
+      }
+
       setTokenStatus('Memuat BUMO dan KC Area...');
 
       try {
@@ -531,16 +966,8 @@
           throw new Error(data.error || ('Gagal load master data. HTTP ' + response.status));
         }
 
-        allBumoOptions = data.bumo_options || [];
-        allKcAreaOptions = data.kc_area_options || [];
-
-        currentBumo.dataset.selected = "{{ request.form.get('current_bumo', '') }}";
-        kcArea.dataset.selected = "{{ request.form.get('kc_area', '') }}";
-
-        refreshBumoOptions();
-        refreshKcAreaOptions();
-
-        setTokenStatus('Master data berhasil dimuat.', 'ok');
+        saveMasterDataCache(data);
+        applyMasterData(data, 'Master data berhasil dimuat.');
       } catch (err) {
         console.error(err);
         setTokenStatus('Gagal load master data: ' + (err.message || 'unknown error'), 'error');
@@ -559,12 +986,37 @@
       sp12Pack.addEventListener('change', buildProductTransactions);
     }
 
+    getImageFileInputs().forEach((input) => {
+      input.addEventListener('change', function () {
+        input.dataset.compressed = '';
+        input.dataset.originalSize = '';
+        input.dataset.compressedSize = '';
+        queueImageCompression(input).catch(() => {});
+      });
+    });
+
     if (surveyForm) {
-      surveyForm.addEventListener('submit', function (e) {
+      surveyForm.addEventListener('formdata', function () {
+        if (isSubmitting) {
+          window.setTimeout(function () {
+            setFormLocked(true);
+          }, 0);
+        }
+      });
+
+      surveyForm.addEventListener('submit', async function (e) {
         const products = buildProductTransactions();
         if (products.length === 0) {
           e.preventDefault();
           alert('Minimal CMKT SP12 harus 1 pack.');
+          return;
+        }
+
+        if (allowNativeSubmit) {
+          allowNativeSubmit = false;
+          isSubmitting = true;
+          setSubmitLoading(true);
+          showLoadingOverlay();
           return;
         }
 
@@ -573,13 +1025,50 @@
           return;
         }
 
+        e.preventDefault();
         isSubmitting = true;
         setSubmitLoading(true);
+        showLoadingOverlay();
+        setFormLocked(true);
+
+        try {
+          if (loadingStatus) {
+            loadingStatus.textContent = hasPendingImageCompression()
+              ? 'Menyiapkan gambar sebelum dikirim.'
+              : 'Mengirim survey. Jangan tutup halaman ini.';
+          }
+          await compressAllImageInputs();
+          if (loadingStatus) loadingStatus.textContent = 'Mengirim survey. Jangan tutup halaman ini.';
+          setFormLocked(false);
+          setSubmitLoading(true);
+          allowNativeSubmit = true;
+
+          if (typeof surveyForm.requestSubmit === 'function') {
+            surveyForm.requestSubmit();
+          } else {
+            surveyForm.submit();
+          }
+        } catch (error) {
+          allowNativeSubmit = false;
+          isSubmitting = false;
+          setFormLocked(false);
+          setSubmitLoading(false);
+          hideLoadingOverlay();
+          alert('Gagal menyiapkan gambar: ' + (error.message || 'unknown error'));
+        }
       });
     }
 
+    window.addEventListener('pageshow', function () {
+      hideLoadingOverlay();
+      isSubmitting = false;
+      setFormLocked(false);
+      setSubmitLoading(false);
+    });
+
     window.addEventListener('DOMContentLoaded', function () {
       buildProductTransactions();
+      if (shouldResetFormAfterSubmit) resetSurveyFormView();
       loadMasterData();
       const nameInput = document.querySelector('input[name="customer_name"]');
       if (nameInput) nameInput.focus();

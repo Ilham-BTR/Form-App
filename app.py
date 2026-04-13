@@ -16,6 +16,7 @@ import string
 import tempfile
 import csv
 import logging
+import random
 import time
 from io import TextIOWrapper
 from functools import wraps
@@ -82,6 +83,7 @@ VALID_AGE_RANGES = {value for value, _label in AGE_RANGE_OPTIONS}
 
 DATABASE_URL = require_env("DATABASE_URL")
 DEFAULT_DAILY_LIMIT = 40
+SUBMIT_MAX_RETRIES = 3
 
 ADMIN_PAGE_USERNAME = require_env("ADMIN_PAGE_USERNAME")
 ADMIN_PAGE_PASSWORD = require_env("ADMIN_PAGE_PASSWORD")
@@ -235,17 +237,126 @@ def get_now_db_string():
     return get_now_wib().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def normalize_final_submit_state(result):
-    status_code = result.get("status_code")
-    response_body = result.get("response_body")
-    response_text = safe_json_dumps(response_body, ensure_ascii=False) if isinstance(response_body, (dict, list)) else str(response_body or "")
-    response_text_lower = response_text.lower()
+def response_body_to_text(response_body):
+    if isinstance(response_body, (dict, list)):
+        return safe_json_dumps(response_body, ensure_ascii=False)
+    return str(response_body or "")
 
+
+def get_response_error_type(response_body):
+    if not isinstance(response_body, dict):
+        return ""
+    return str(response_body.get("error") or response_body.get("error_type") or "").strip().lower()
+
+
+def is_duplicate_response(response_body):
+    return "sudah melakukan pengisian form" in response_body_to_text(response_body).lower()
+
+
+def is_retryable_status(status_code, response_body):
+    if status_code == 400:
+        return False
+    if status_code is None:
+        return get_response_error_type(response_body) in {"timeout", "network"}
+    if status_code in {401, 429}:
+        return True
+    return 500 <= status_code < 600
+
+
+def get_retry_delay(status_code):
+    if status_code == 401:
+        return random.uniform(1, 2)
+    if status_code == 429:
+        return random.uniform(8, 15)
+    if status_code is None or 500 <= status_code < 600:
+        return random.uniform(2, 5)
+    return 0
+
+
+def get_retry_reason(status_code, response_body):
+    if status_code == 401:
+        return "401 unauthorized"
+    if status_code == 429:
+        return "429 rate limited"
+    if status_code and 500 <= status_code < 600:
+        return "5xx server error"
+    error_type = get_response_error_type(response_body)
+    if error_type == "timeout":
+        return "timeout"
+    if error_type == "network":
+        return "network error"
+    return "unknown"
+
+
+def normalize_final_submit_state(result):
+    attempts = result.get("attempts") or []
+
+    if attempts:
+        first_attempt = attempts[0]
+        final_attempt = attempts[-1]
+        first_status = first_attempt.get("status_code")
+        final_status = final_attempt.get("status_code")
+        final_body = final_attempt.get("response_body")
+
+        if should_mark_phone_invalid(result):
+            return "INVALID"
+        if final_status and 200 <= final_status < 300:
+            return "SUCCESS"
+        if (
+            is_retryable_status(first_status, first_attempt.get("response_body"))
+            and final_status == 400
+            and is_duplicate_response(final_body)
+        ):
+            return "LIKELY_SUCCESS"
+        return "FAILED"
+
+    status_code = result.get("status_code")
     if status_code and 200 <= status_code < 300:
         return "SUCCESS"
-    if status_code == 400 and "sudah melakukan pengisian form" in response_text_lower:
-        return "LIKELY_SUCCESS"
+    if status_code == 400:
+        return "INVALID"
     return "FAILED"
+
+
+def should_mark_phone_invalid(result):
+    attempts = result.get("attempts") or []
+
+    if attempts:
+        first_status = attempts[0].get("status_code")
+        final_status = attempts[-1].get("status_code")
+        retry_count = len(attempts) - 1
+
+        if first_status == 400:
+            return True
+        if (
+            first_status == 401
+            and final_status == 401
+            and retry_count >= SUBMIT_MAX_RETRIES
+        ):
+            return True
+        return False
+
+    return result.get("status_code") == 400
+
+
+def reserve_next_phone_for_session(kc_token, previous_phone_number=None):
+    session.pop("assigned_phone_number", None)
+    next_phone_number = reserve_phone_for_kc(kc_token)
+    if previous_phone_number and next_phone_number == previous_phone_number:
+        logger.warning(
+            "reserve next phone returned previous phone kc_token=%s previous_phone=%s",
+            kc_token,
+            previous_phone_number,
+        )
+        mark_phone_as_used(previous_phone_number, kc_token)
+        session.pop("assigned_phone_number", None)
+        next_phone_number = reserve_phone_for_kc(kc_token)
+        if next_phone_number == previous_phone_number:
+            session.pop("assigned_phone_number", None)
+            next_phone_number = ""
+    if next_phone_number:
+        session["assigned_phone_number"] = next_phone_number
+    return next_phone_number or ""
 
 
 def summarize_submit_result(result):
@@ -360,7 +471,7 @@ def get_submission_status_counts():
     )
     rows = cur.fetchall()
     conn.close()
-    counts = {"SUCCESS": 0, "LIKELY_SUCCESS": 0, "FAILED": 0, "PENDING": 0}
+    counts = {"SUCCESS": 0, "LIKELY_SUCCESS": 0, "INVALID": 0, "FAILED": 0, "PENDING": 0}
     for row in rows:
         counts[row["status_local"]] = row["total"]
     return counts
@@ -493,7 +604,8 @@ def mark_phone_as_used(phone_number, kc_token):
             reserved_by_token = NULL,
             reserved_at = NULL,
             updated_at = %s
-        WHERE phone_number = %s AND reserved_by_token = %s
+        WHERE phone_number = %s
+          AND (reserved_by_token = %s OR reserved_by_token IS NULL OR reserved_by_token = '')
         """,
         (get_now_db_string(), phone_number, kc_token),
     )
@@ -633,14 +745,6 @@ def mark_phone_as_invalid(phone_number, kc_token=None):
         )
     conn.commit()
     conn.close()
-
-
-def is_first_attempt_hard_400(result):
-    attempts = result.get("attempts") or []
-    if not attempts:
-        return False
-    first_attempt = attempts[0]
-    return first_attempt.get("status_code") == 400 and len(attempts) == 1
 
 
 def get_all_customer_numbers(limit=None, sort_by="reserved_at", sort_dir="desc"):
@@ -1488,14 +1592,65 @@ def send_survey_request(
 
             url = base_url.rstrip("/") + endpoint
 
-            response = requests.request(
-                method="POST",
-                url=url,
-                data=multipart_body,
-                headers=headers,
-                timeout=60,
-                verify=False
-            )
+            try:
+                response = requests.request(
+                    method="POST",
+                    url=url,
+                    data=multipart_body,
+                    headers=headers,
+                    timeout=60,
+                    verify=False
+                )
+            except requests.exceptions.Timeout as exc:
+                elapsed_ms = int((time.monotonic() - started_at) * 1000)
+                logger.warning(
+                    "submit attempt=%s status=None error=timeout elapsed_ms=%s phone=%s timestamp=%s",
+                    attempt_no,
+                    elapsed_ms,
+                    phone_number,
+                    timestamp,
+                )
+                return {
+                    "attempt_no": attempt_no,
+                    "timestamp": timestamp,
+                    "hash": hash_val,
+                    "string_to_hash": string_to_hash,
+                    "body_string_for_hash": body_string,
+                    "status_code": None,
+                    "response_body": {
+                        "error": "timeout",
+                        "message": str(exc),
+                    },
+                    "error_type": "timeout",
+                    "url": url,
+                    "boundary": boundary,
+                    "elapsed_ms": elapsed_ms,
+                }
+            except requests.exceptions.RequestException as exc:
+                elapsed_ms = int((time.monotonic() - started_at) * 1000)
+                logger.warning(
+                    "submit attempt=%s status=None error=network elapsed_ms=%s phone=%s timestamp=%s",
+                    attempt_no,
+                    elapsed_ms,
+                    phone_number,
+                    timestamp,
+                )
+                return {
+                    "attempt_no": attempt_no,
+                    "timestamp": timestamp,
+                    "hash": hash_val,
+                    "string_to_hash": string_to_hash,
+                    "body_string_for_hash": body_string,
+                    "status_code": None,
+                    "response_body": {
+                        "error": "network",
+                        "message": str(exc),
+                    },
+                    "error_type": "network",
+                    "url": url,
+                    "boundary": boundary,
+                    "elapsed_ms": elapsed_ms,
+                }
 
             try:
                 response_body = response.json()
@@ -1525,17 +1680,37 @@ def send_survey_request(
                 "elapsed_ms": elapsed_ms,
             }
 
+        max_retries = SUBMIT_MAX_RETRIES
         attempts = []
-        first_result = build_request_once(1)
-        attempts.append(first_result)
-        final_result = first_result
+        final_result = None
 
-        if first_result["status_code"] == 401:
-            time.sleep(0.3)
-            second_result = build_request_once(2)
-            attempts.append(second_result)
-            final_result = second_result
+        for attempt_no in range(1, max_retries + 2):
+            current_result = build_request_once(attempt_no)
+            attempts.append(current_result)
+            final_result = current_result
 
+            retries_used = attempt_no - 1
+            status_code = current_result.get("status_code")
+            response_body = current_result.get("response_body")
+            if (
+                not is_retryable_status(status_code, response_body)
+                or retries_used >= max_retries
+            ):
+                break
+
+            delay_seconds = get_retry_delay(status_code)
+            retry_reason = get_retry_reason(status_code, response_body)
+            logger.info(
+                "submit retry scheduled attempt=%s next_attempt=%s reason=%s delay_seconds=%.2f phone=%s",
+                attempt_no,
+                attempt_no + 1,
+                retry_reason,
+                delay_seconds,
+                phone_number,
+            )
+            time.sleep(delay_seconds)
+
+        final_result = dict(final_result)
         final_result["attempts"] = attempts
         final_result["final_state"] = normalize_final_submit_state(final_result)
         return final_result
@@ -1641,7 +1816,10 @@ def user_app():
         return redirect(url_for("home"))
 
     error = None
+    error_detail = None
+    can_retry_failed_submit = False
     success_message = None
+    reset_form = False
     result = None
     selected_age_range = request.form.get("age_range", "age-31-35")
     selected_sp12_pack = request.form.get("sp12_pack", request.form.get("cmkt12_pack", DEFAULT_SP12_PACK))
@@ -1751,10 +1929,10 @@ def user_app():
             )
 
             final_state = result.get("final_state") or normalize_final_submit_state(result)
-            first_attempt_hard_400 = is_first_attempt_hard_400(result)
+            mark_phone_invalid = should_mark_phone_invalid(result)
 
-            if first_attempt_hard_400:
-                final_state = "FAILED"
+            if mark_phone_invalid:
+                final_state = "INVALID"
 
             update_submission_attempt(
                 submission_id,
@@ -1772,29 +1950,48 @@ def user_app():
                 summarize_submit_result(result),
             )
 
-            if first_attempt_hard_400:
+            if mark_phone_invalid:
                 mark_phone_as_invalid(phone_number, kc_token)
-                session.pop("assigned_phone_number", None)
-
-                new_phone_number = reserve_phone_for_kc(kc_token)
+                new_phone_number = reserve_next_phone_for_session(kc_token, previous_phone_number=phone_number)
+                invalid_reason = (
+                    "Submit pertama langsung mendapat status 400."
+                    if (result.get("attempts") or [{}])[0].get("status_code") == 400
+                    else "Retry 401 sudah habis dan status akhir tetap 401."
+                )
                 if new_phone_number:
-                    session["assigned_phone_number"] = new_phone_number
                     assigned_phone_number = new_phone_number
+                    logger.info(
+                        "submit phone action submission_id=%s final_state=%s phone_changed=%s old_phone=%s new_phone=%s reason=%s",
+                        submission_id,
+                        final_state,
+                        True,
+                        phone_number,
+                        new_phone_number,
+                        invalid_reason,
+                    )
                     error = (
-                        "Submit pertama langsung mendapat status 400. "
+                        f"{invalid_reason} "
                         "Nomor lama ditandai invalid dan diganti otomatis ke nomor lain. "
                         f"Nomor baru: {new_phone_number}"
                     )
                 else:
                     assigned_phone_number = ""
+                    logger.info(
+                        "submit phone action submission_id=%s final_state=%s phone_changed=%s old_phone=%s new_phone=%s reason=%s",
+                        submission_id,
+                        final_state,
+                        False,
+                        phone_number,
+                        "",
+                        invalid_reason,
+                    )
                     error = (
-                        "Submit pertama langsung mendapat status 400. "
+                        f"{invalid_reason} "
                         "Nomor lama ditandai invalid, tetapi saat ini tidak ada nomor pengganti yang tersedia."
                     )
 
             elif final_state in {"SUCCESS", "LIKELY_SUCCESS"}:
                 mark_phone_as_used(phone_number, kc_token)
-                session.pop("assigned_phone_number", None)
                 increment_kc_token_usage(kc_token, quota_date)
                 auto_disabled, _used_after_submit, _daily_limit_after_submit = auto_disable_kc_token_if_limit_reached(kc_token)
                 used_today, remaining_today, quota_date = get_remaining_quota(kc_token, daily_limit)
@@ -1808,14 +2005,58 @@ def user_app():
 
                 if auto_disabled:
                     success_message = success_prefix + "Kuota harian token ini sudah habis, jadi token otomatis dinonaktifkan."
+                    reset_form = True
+                    selected_age_range = "age-31-35"
+                    selected_sp12_pack = DEFAULT_SP12_PACK
+                    assigned_phone_number = ""
+                    logger.info(
+                        "submit phone action submission_id=%s final_state=%s phone_changed=%s old_phone=%s new_phone=%s reason=%s",
+                        submission_id,
+                        final_state,
+                        False,
+                        phone_number,
+                        "",
+                        "quota auto-disabled",
+                    )
                     clear_user_session()
                 else:
-                    success_message = success_prefix + f"Sisa kuota hari ini: {remaining_today}"
+                    assigned_phone_number = reserve_next_phone_for_session(kc_token, previous_phone_number=phone_number)
+                    reset_form = True
+                    selected_age_range = "age-31-35"
+                    selected_sp12_pack = DEFAULT_SP12_PACK
+                    logger.info(
+                        "submit phone action submission_id=%s final_state=%s phone_changed=%s old_phone=%s new_phone=%s reason=%s",
+                        submission_id,
+                        final_state,
+                        bool(assigned_phone_number),
+                        phone_number,
+                        assigned_phone_number or "",
+                        "success next phone reserved",
+                    )
+                    if assigned_phone_number:
+                        success_message = success_prefix + f"Sisa kuota hari ini: {remaining_today}. Nomor baru: {assigned_phone_number}"
+                    else:
+                        success_message = success_prefix + f"Sisa kuota hari ini: {remaining_today}. Tidak ada nomor baru yang tersedia."
             else:
                 body_msg = result.get("response_body")
+                logger.info(
+                    "submit phone action submission_id=%s final_state=%s phone_changed=%s old_phone=%s new_phone=%s reason=%s",
+                    submission_id,
+                    final_state,
+                    False,
+                    phone_number,
+                    "",
+                    "failed final state",
+                )
+                can_retry_failed_submit = True
                 error = (
-                    f"Gagal kirim survey. Status code: {result['status_code']} | "
-                    f"Attempts: {summarize_submit_result(result)} | Response: {body_msg}"
+                    "Submit belum berhasil setelah retry otomatis. "
+                    "Nomor tetap sama. Upload ulang bukti, lalu coba kirim lagi."
+                )
+                error_detail = (
+                    f"Status code: {result.get('status_code')} | "
+                    f"Attempts: {summarize_submit_result(result)} | "
+                    f"Response: {body_msg}"
                 )
 
         except Exception as e:
@@ -1825,6 +2066,8 @@ def user_app():
     return render_template(
         "user_app.html",
         error=error,
+        error_detail=error_detail,
+        can_retry_failed_submit=can_retry_failed_submit,
         success_message=success_message,
         result=result,
         bumo_options=[],
@@ -1838,6 +2081,8 @@ def user_app():
         selected_age_range=selected_age_range,
         selected_sp12_pack=selected_sp12_pack,
         assigned_phone_number=assigned_phone_number or "",
+        reset_form=reset_form,
+        kc_token=kc_token,
     )
 
 
@@ -2190,6 +2435,7 @@ def admin_submissions():
     retried_success_count = 0
     retried_failed_count = 0
     retried_likely_success_count = 0
+    invalid_count = 0
 
     for row in rows:
         attempt_count = int(row.get("attempt_count") or 0)
@@ -2213,6 +2459,9 @@ def admin_submissions():
                 row["retry_label"] = "Retried Failed"
             else:
                 row["retry_label"] = "Failed"
+        elif row["status_local"] == "INVALID":
+            invalid_count += 1
+            row["retry_label"] = "Invalid"
         else:
             row["retry_label"] = "Pending"
 
@@ -2225,6 +2474,7 @@ def admin_submissions():
         "retried_success_count": retried_success_count,
         "retried_likely_success_count": retried_likely_success_count,
         "retried_failed_count": retried_failed_count,
+        "invalid_count": invalid_count,
         "retried_total": retried_total,
         "retry_rate": retry_rate,
     }
