@@ -7,7 +7,8 @@ import json
 import requests
 from urllib.parse import urlparse
 from datetime import datetime, timezone, timedelta
-import sqlite3
+from psycopg import connect
+from psycopg.rows import dict_row
 import os
 import mimetypes
 import secrets
@@ -48,7 +49,6 @@ if not logger.handlers:
 
 
 APP_HMAC_SECRET = require_env("APP_HMAC_SECRET")
-LEGACY_MASTERDATA_SECRET = os.environ.get("LEGACY_MASTERDATA_SECRET", "bJ77dfp0bZ1raadd8u").strip()
 DEFAULT_BASE_URL = os.environ.get(
     "DEFAULT_BASE_URL",
     "https://ca-msfsax05-22-be-letscml-prd.mangosmoke-bb4ae1b7.southeastasia.azurecontainerapps.io",
@@ -79,7 +79,7 @@ AGE_RANGE_OPTIONS = [
 VALID_AGE_RANGES = {value for value, _label in AGE_RANGE_OPTIONS}
 
 
-DB_PATH = "token_limits.db"
+DATABASE_URL = require_env("DATABASE_URL")
 DEFAULT_DAILY_LIMIT = 40
 
 ADMIN_PAGE_USERNAME = require_env("ADMIN_PAGE_USERNAME")
@@ -87,8 +87,7 @@ ADMIN_PAGE_PASSWORD = require_env("ADMIN_PAGE_PASSWORD")
 
 
 def get_db_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = connect(DATABASE_URL, row_factory=dict_row, autocommit=False)
     return conn
 
 
@@ -122,45 +121,11 @@ def init_db():
             is_used INTEGER NOT NULL DEFAULT 0,
             reserved_by_token TEXT,
             reserved_at TEXT,
-            shuffle_order INTEGER,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            shuffle_order BIGINT,
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT ''
         )
     """)
-
-    existing_columns = {row[1] for row in cur.execute("PRAGMA table_info(customer_directory)").fetchall()}
-    expected_columns = {
-        "phone_number": "TEXT PRIMARY KEY",
-        "is_active": "INTEGER NOT NULL DEFAULT 1",
-        "is_used": "INTEGER NOT NULL DEFAULT 0",
-        "reserved_by_token": "TEXT",
-        "reserved_at": "TEXT",
-        "shuffle_order": "INTEGER",
-        "created_at": "TEXT NOT NULL DEFAULT ''",
-        "updated_at": "TEXT NOT NULL DEFAULT ''",
-    }
-    for column_name, column_def in expected_columns.items():
-        if column_name not in existing_columns:
-            cur.execute(f"ALTER TABLE customer_directory ADD COLUMN {column_name} {column_def}")
-
-    cur.execute("""
-        UPDATE customer_directory
-        SET created_at = COALESCE(NULLIF(created_at, ''), datetime('now')),
-            updated_at = COALESCE(NULLIF(updated_at, ''), datetime('now'))
-    """)
-
-    rows_to_backfill = cur.execute(
-        "SELECT phone_number FROM customer_directory WHERE shuffle_order IS NULL"
-    ).fetchall()
-    for row in rows_to_backfill:
-        cur.execute(
-            "UPDATE customer_directory SET shuffle_order = ? WHERE phone_number = ?",
-            (secrets.randbits(63), row[0]),
-        )
-
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_customer_directory_pick ON customer_directory (is_active, is_used, reserved_by_token, shuffle_order)"
-    )
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS submission_attempts (
@@ -176,15 +141,25 @@ def init_db():
             updated_at TEXT NOT NULL
         )
     """)
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_submission_attempts_phone ON submission_attempts (phone_number, created_at DESC)"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_submission_attempts_status ON submission_attempts (status_local, created_at DESC)"
-    )
-    cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_submission_attempts_kc ON submission_attempts (kc_token, created_at DESC)"
-    )
+
+    cur.execute("""
+        UPDATE customer_directory
+        SET created_at = COALESCE(NULLIF(created_at, ''), NOW()::text),
+            updated_at = COALESCE(NULLIF(updated_at, ''), NOW()::text)
+    """)
+
+    cur.execute("SELECT phone_number FROM customer_directory WHERE shuffle_order IS NULL")
+    rows_to_backfill = cur.fetchall()
+    for row in rows_to_backfill:
+        cur.execute(
+            "UPDATE customer_directory SET shuffle_order = %s WHERE phone_number = %s",
+            (secrets.randbits(63), row["phone_number"]),
+        )
+
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_customer_directory_pick ON customer_directory (is_active, is_used, reserved_by_token, shuffle_order)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_attempts_phone ON submission_attempts (phone_number, created_at DESC)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_attempts_status ON submission_attempts (status_local, created_at DESC)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_attempts_kc ON submission_attempts (kc_token, created_at DESC)")
 
     conn.commit()
     conn.close()
@@ -203,7 +178,7 @@ def seed_kc_tokens():
     for kc_token, kc_name, bearer_token, daily_limit, is_active in sample_tokens:
         cur.execute("""
             INSERT OR IGNORE INTO valid_kc_tokens (kc_token, kc_name, bearer_token, daily_limit, is_active)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
         """, (kc_token, kc_name, bearer_token, daily_limit, is_active))
 
     conn.commit()
@@ -291,7 +266,7 @@ def create_submission_attempt(submission_id, phone_number, kc_token, request_sum
         INSERT INTO submission_attempts (
             submission_id, phone_number, kc_token, status_local, final_status_code,
             final_response_text, attempts_json, request_summary_json, created_at, updated_at
-        ) VALUES (?, ?, ?, 'PENDING', NULL, NULL, '[]', ?, ?, ?)
+        ) VALUES (%s, %s, %s, 'PENDING', NULL, NULL, '[]', %s, %s, %s)
         """,
         (submission_id, phone_number, kc_token, safe_json_dumps(request_summary, ensure_ascii=False), now_str, now_str),
     )
@@ -307,12 +282,12 @@ def update_submission_attempt(submission_id, status_local, final_status_code, fi
     cur.execute(
         """
         UPDATE submission_attempts
-        SET status_local = ?,
-            final_status_code = ?,
-            final_response_text = ?,
-            attempts_json = ?,
-            updated_at = ?
-        WHERE submission_id = ?
+        SET status_local = %s,
+            final_status_code = %s,
+            final_response_text = %s,
+            attempts_json = %s,
+            updated_at = %s
+        WHERE submission_id = %s
         """,
         (status_local, final_status_code, response_text, safe_json_dumps(attempts, ensure_ascii=False), now_str, submission_id),
     )
@@ -330,16 +305,16 @@ def get_recent_submission_attempts(limit=100, status_filter="", kc_token_filter=
     params = []
 
     if status_filter:
-        query.append("AND status_local = ?")
+        query.append("AND status_local = %s")
         params.append(status_filter)
     if kc_token_filter:
-        query.append("AND kc_token LIKE ?")
+        query.append("AND kc_token LIKE %s")
         params.append(f"%{kc_token_filter}%")
     if phone_filter:
-        query.append("AND phone_number LIKE ?")
+        query.append("AND phone_number LIKE %s")
         params.append(f"%{phone_filter}%")
 
-    query.append("ORDER BY created_at DESC LIMIT ?")
+    query.append("ORDER BY created_at DESC LIMIT %s")
     params.append(limit)
 
     conn = get_db_connection()
@@ -411,7 +386,7 @@ def get_reserved_phone_for_kc(kc_token):
         """
         SELECT phone_number
         FROM customer_directory
-        WHERE reserved_by_token = ? AND is_active = 1 AND is_used = 0
+        WHERE reserved_by_token = %s AND is_active = 1 AND is_used = 0
         ORDER BY reserved_at ASC, phone_number ASC
         LIMIT 1
         """,
@@ -431,7 +406,6 @@ def reserve_phone_for_kc(kc_token):
         conn = get_db_connection()
         cur = conn.cursor()
         try:
-            cur.execute("BEGIN IMMEDIATE")
             cur.execute(
                 """
                 SELECT phone_number
@@ -440,6 +414,7 @@ def reserve_phone_for_kc(kc_token):
                   AND is_used = 0
                   AND (reserved_by_token IS NULL OR reserved_by_token = '')
                 ORDER BY shuffle_order ASC, created_at ASC, phone_number ASC
+                FOR UPDATE SKIP LOCKED
                 LIMIT 1
                 """
             )
@@ -453,8 +428,8 @@ def reserve_phone_for_kc(kc_token):
             cur.execute(
                 """
                 UPDATE customer_directory
-                SET reserved_by_token = ?, reserved_at = ?, updated_at = ?
-                WHERE phone_number = ?
+                SET reserved_by_token = %s, reserved_at = %s, updated_at = %s
+                WHERE phone_number = %s
                   AND is_active = 1
                   AND is_used = 0
                   AND (reserved_by_token IS NULL OR reserved_by_token = '')
@@ -464,6 +439,8 @@ def reserve_phone_for_kc(kc_token):
             if cur.rowcount == 1:
                 conn.commit()
                 return phone_number
+            conn.rollback()
+        except Exception:
             conn.rollback()
         finally:
             conn.close()
@@ -478,16 +455,16 @@ def release_reserved_phone(phone_number=None, kc_token=None):
     cur = conn.cursor()
     query = [
         "UPDATE customer_directory",
-        "SET reserved_by_token = NULL, reserved_at = NULL, updated_at = ?",
+        "SET reserved_by_token = NULL, reserved_at = NULL, updated_at = %s",
         "WHERE is_used = 0",
     ]
     params = [get_now_db_string()]
 
     if phone_number:
-        query.append("AND phone_number = ?")
+        query.append("AND phone_number = %s")
         params.append(phone_number)
     if kc_token:
-        query.append("AND reserved_by_token = ?")
+        query.append("AND reserved_by_token = %s")
         params.append(kc_token)
 
     cur.execute(" ".join(query), tuple(params))
@@ -513,8 +490,8 @@ def mark_phone_as_used(phone_number, kc_token):
         SET is_used = 1,
             reserved_by_token = NULL,
             reserved_at = NULL,
-            updated_at = ?
-        WHERE phone_number = ? AND reserved_by_token = ?
+            updated_at = %s
+        WHERE phone_number = %s AND reserved_by_token = %s
         """,
         (get_now_db_string(), phone_number, kc_token),
     )
@@ -536,26 +513,26 @@ def upsert_customer_number(phone_number, is_active=1, old_phone_number=None):
             if not old_phone_number:
                 raise ValueError("Nomor lama tidak valid.")
             if old_phone_number != normalized:
-                cur.execute("SELECT 1 FROM customer_directory WHERE phone_number = ?", (normalized,))
+                cur.execute("SELECT 1 FROM customer_directory WHERE phone_number = %s", (normalized,))
                 if cur.fetchone():
                     raise ValueError("Nomor HP sudah ada di database.")
             cur.execute(
                 """
                 UPDATE customer_directory
-                SET phone_number = ?, is_active = ?, updated_at = ?
-                WHERE phone_number = ?
+                SET phone_number = %s, is_active = %s, updated_at = %s
+                WHERE phone_number = %s
                 """,
                 (normalized, 1 if is_active else 0, now_str, old_phone_number),
             )
         else:
-            cur.execute("SELECT 1 FROM customer_directory WHERE phone_number = ?", (normalized,))
+            cur.execute("SELECT 1 FROM customer_directory WHERE phone_number = %s", (normalized,))
             if cur.fetchone():
                 raise ValueError("Nomor HP sudah ada di database.")
             cur.execute(
                 """
                 INSERT INTO customer_directory (
                     phone_number, is_active, is_used, reserved_by_token, reserved_at, shuffle_order, created_at, updated_at
-                ) VALUES (?, ?, 0, NULL, NULL, ?, ?, ?)
+                ) VALUES (%s, %s, 0, NULL, NULL, %s, %s, %s)
                 """,
                 (normalized, 1 if is_active else 0, secrets.randbits(63), now_str, now_str),
             )
@@ -571,7 +548,7 @@ def delete_customer_number(phone_number):
         return
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("DELETE FROM customer_directory WHERE phone_number = ?", (normalized,))
+    cur.execute("DELETE FROM customer_directory WHERE phone_number = %s", (normalized,))
     conn.commit()
     conn.close()
 
@@ -588,13 +565,80 @@ def reset_customer_status(phone_number):
         SET is_used = 0,
             reserved_by_token = NULL,
             reserved_at = NULL,
-            updated_at = ?
-        WHERE phone_number = ?
+            updated_at = %s
+        WHERE phone_number = %s
         """,
         (get_now_db_string(), normalized),
     )
     conn.commit()
     conn.close()
+
+
+def get_customer_number(phone_number):
+    normalized = normalize_phone_number(phone_number)
+    if not normalized:
+        return None
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT phone_number, is_active, is_used, reserved_by_token, reserved_at, shuffle_order, created_at, updated_at
+        FROM customer_directory
+        WHERE phone_number = %s
+        LIMIT 1
+        """,
+        (normalized,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def mark_phone_as_invalid(phone_number, kc_token=None):
+    normalized = normalize_phone_number(phone_number)
+    if not normalized:
+        return
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    if kc_token:
+        cur.execute(
+            """
+            UPDATE customer_directory
+            SET is_active = 0,
+                is_used = 0,
+                reserved_by_token = NULL,
+                reserved_at = NULL,
+                updated_at = %s
+            WHERE phone_number = %s
+              AND (reserved_by_token = %s OR reserved_by_token IS NULL OR reserved_by_token = '')
+            """,
+            (get_now_db_string(), normalized, kc_token),
+        )
+    else:
+        cur.execute(
+            """
+            UPDATE customer_directory
+            SET is_active = 0,
+                is_used = 0,
+                reserved_by_token = NULL,
+                reserved_at = NULL,
+                updated_at = %s
+            WHERE phone_number = %s
+            """,
+            (get_now_db_string(), normalized),
+        )
+    conn.commit()
+    conn.close()
+
+
+def is_first_attempt_hard_400(result):
+    attempts = result.get("attempts") or []
+    if not attempts:
+        return False
+    first_attempt = attempts[0]
+    return first_attempt.get("status_code") == 400 and len(attempts) == 1
 
 
 def get_all_customer_numbers(limit=None, sort_by="reserved_at", sort_dir="desc"):
@@ -611,7 +655,7 @@ def get_all_customer_numbers(limit=None, sort_by="reserved_at", sort_dir="desc")
 
     params = []
     if isinstance(limit, int) and limit > 0:
-        query += "\n        LIMIT ?"
+        query += "\n        LIMIT %s"
         params.append(limit)
 
     cur.execute(query, params)
@@ -698,7 +742,7 @@ def get_all_customer_numbers(limit=None, sort_by="reserved_at", sort_dir="desc")
 
     params = []
     if isinstance(limit, int) and limit > 0:
-        query += "\n        LIMIT ?"
+        query += "\n        LIMIT %s"
         params.append(limit)
 
     cur.execute(query, params)
@@ -788,18 +832,21 @@ def import_customer_numbers(uploaded_file, is_active=1):
             if not phone:
                 invalid += 1
                 continue
-            try:
-                cur.execute(
-                    """
-                    INSERT INTO customer_directory (
-                        phone_number, is_active, is_used, reserved_by_token, reserved_at, shuffle_order, created_at, updated_at
-                    ) VALUES (?, ?, 0, NULL, NULL, ?, ?, ?)
-                    """,
-                    (phone, 1 if is_active else 0, secrets.randbits(63), now_str, now_str),
-                )
-                inserted += 1
-            except sqlite3.IntegrityError:
+
+            cur.execute("SELECT 1 FROM customer_directory WHERE phone_number = %s", (phone,))
+            if cur.fetchone():
                 duplicates += 1
+                continue
+
+            cur.execute(
+                """
+                INSERT INTO customer_directory (
+                    phone_number, is_active, is_used, reserved_by_token, reserved_at, shuffle_order, created_at, updated_at
+                ) VALUES (%s, %s, 0, NULL, NULL, %s, %s, %s)
+                """,
+                (phone, 1 if is_active else 0, secrets.randbits(63), now_str, now_str),
+            )
+            inserted += 1
         conn.commit()
     finally:
         conn.close()
@@ -826,7 +873,7 @@ def reshuffle_ready_customer_numbers():
     now_str = get_now_db_string()
     for row in rows:
         cur.execute(
-            "UPDATE customer_directory SET shuffle_order = ?, updated_at = ? WHERE phone_number = ?",
+            "UPDATE customer_directory SET shuffle_order = %s, updated_at = %s WHERE phone_number = %s",
             (secrets.randbits(63), now_str, row["phone_number"]),
         )
     conn.commit()
@@ -843,7 +890,7 @@ def reset_customer_distribution():
         UPDATE customer_directory
         SET reserved_by_token = NULL,
             reserved_at = NULL,
-            updated_at = ?
+            updated_at = %s
         WHERE is_used = 0
         """,
         (now_str,),
@@ -859,7 +906,7 @@ def reset_customer_distribution():
     ).fetchall()
     for row in rows:
         cur.execute(
-            "UPDATE customer_directory SET shuffle_order = ?, updated_at = ? WHERE phone_number = ?",
+            "UPDATE customer_directory SET shuffle_order = %s, updated_at = %s WHERE phone_number = %s",
             (secrets.randbits(63), now_str, row["phone_number"]),
         )
     conn.commit()
@@ -874,7 +921,7 @@ def get_kc_token_detail(kc_token):
     cur.execute("""
         SELECT kc_token, kc_name, bearer_token, daily_limit, is_active
         FROM valid_kc_tokens
-        WHERE kc_token = ?
+        WHERE kc_token = %s
     """, (kc_token,))
     row = cur.fetchone()
     conn.close()
@@ -899,28 +946,35 @@ def create_kc_token(kc_token, kc_name, bearer_token, daily_limit):
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO valid_kc_tokens (kc_token, kc_name, bearer_token, daily_limit, is_active)
-        VALUES (?, ?, ?, ?, 1)
+        VALUES (%s, %s, %s, %s, 1)
     """, (kc_token, kc_name, bearer_token, daily_limit))
     conn.commit()
     conn.close()
 
 
-def update_kc_token(old_kc_token, new_kc_token, kc_name, bearer_token, daily_limit):
+def update_kc_token(old_kc_token, new_kc_token, kc_name, bearer_token, daily_limit, is_active=None):
     conn = get_db_connection()
     cur = conn.cursor()
 
     if old_kc_token != new_kc_token:
         cur.execute("""
             UPDATE kc_token_usage
-            SET kc_token = ?
-            WHERE kc_token = ?
+            SET kc_token = %s
+            WHERE kc_token = %s
         """, (new_kc_token, old_kc_token))
 
-    cur.execute("""
-        UPDATE valid_kc_tokens
-        SET kc_token = ?, kc_name = ?, bearer_token = ?, daily_limit = ?
-        WHERE kc_token = ?
-    """, (new_kc_token, kc_name, bearer_token, daily_limit, old_kc_token))
+    if is_active is None:
+        cur.execute("""
+            UPDATE valid_kc_tokens
+            SET kc_token = %s, kc_name = %s, bearer_token = %s, daily_limit = %s
+            WHERE kc_token = %s
+        """, (new_kc_token, kc_name, bearer_token, daily_limit, old_kc_token))
+    else:
+        cur.execute("""
+            UPDATE valid_kc_tokens
+            SET kc_token = %s, kc_name = %s, bearer_token = %s, daily_limit = %s, is_active = %s
+            WHERE kc_token = %s
+        """, (new_kc_token, kc_name, bearer_token, daily_limit, int(is_active), old_kc_token))
 
     conn.commit()
     conn.close()
@@ -932,7 +986,7 @@ def toggle_kc_token_status(kc_token):
     cur.execute("""
         UPDATE valid_kc_tokens
         SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END
-        WHERE kc_token = ?
+        WHERE kc_token = %s
     """, (kc_token,))
     conn.commit()
     conn.close()
@@ -941,8 +995,8 @@ def toggle_kc_token_status(kc_token):
 def delete_kc_token(kc_token):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("DELETE FROM kc_token_usage WHERE kc_token = ?", (kc_token,))
-    cur.execute("DELETE FROM valid_kc_tokens WHERE kc_token = ?", (kc_token,))
+    cur.execute("DELETE FROM kc_token_usage WHERE kc_token = %s", (kc_token,))
+    cur.execute("DELETE FROM valid_kc_tokens WHERE kc_token = %s", (kc_token,))
     conn.commit()
     conn.close()
 
@@ -957,7 +1011,7 @@ def get_today_kc_usage_summary():
         FROM valid_kc_tokens v
         LEFT JOIN kc_token_usage u
           ON v.kc_token = u.kc_token
-         AND u.usage_date = ?
+         AND u.usage_date = %s
         ORDER BY v.kc_name ASC, v.kc_token ASC
     """, (today,))
     rows = cur.fetchall()
@@ -971,7 +1025,7 @@ def get_kc_token_usage(kc_token, usage_date):
     cur.execute("""
         SELECT total_submit
         FROM kc_token_usage
-        WHERE kc_token = ? AND usage_date = ?
+        WHERE kc_token = %s AND usage_date = %s
     """, (kc_token, usage_date))
     row = cur.fetchone()
     conn.close()
@@ -985,7 +1039,7 @@ def increment_kc_token_usage(kc_token, usage_date):
     cur.execute("""
         SELECT total_submit
         FROM kc_token_usage
-        WHERE kc_token = ? AND usage_date = ?
+        WHERE kc_token = %s AND usage_date = %s
     """, (kc_token, usage_date))
     row = cur.fetchone()
 
@@ -993,12 +1047,12 @@ def increment_kc_token_usage(kc_token, usage_date):
         cur.execute("""
             UPDATE kc_token_usage
             SET total_submit = total_submit + 1
-            WHERE kc_token = ? AND usage_date = ?
+            WHERE kc_token = %s AND usage_date = %s
         """, (kc_token, usage_date))
     else:
         cur.execute("""
             INSERT INTO kc_token_usage (kc_token, usage_date, total_submit)
-            VALUES (?, ?, 1)
+            VALUES (%s, %s, 1)
         """, (kc_token, usage_date))
 
     conn.commit()
@@ -1322,11 +1376,11 @@ def fetch_bumo_options(bearer_token):
         return []
 
     timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-    hash_val = build_get_hash(LEGACY_MASTERDATA_SECRET, DEFAULT_BUMO_ENDPOINT, timestamp)
+    hash_val = build_get_hash(APP_HMAC_SECRET, DEFAULT_BUMO_ENDPOINT, timestamp)
     headers = build_headers(timestamp, hash_val, bearer_token)
 
     url = DEFAULT_BASE_URL.rstrip("/") + DEFAULT_BUMO_ENDPOINT
-    response = requests.get(url, headers=headers, timeout=30, verify=False)
+    response = requests.get(url, headers=headers, timeout=30, verify=True)
     response.raise_for_status()
 
     data = response.json()
@@ -1339,11 +1393,11 @@ def fetch_kc_area_options(bearer_token):
         return []
 
     timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-    hash_val = build_get_hash(LEGACY_MASTERDATA_SECRET, DEFAULT_KC_AREA_ENDPOINT, timestamp)
+    hash_val = build_get_hash(APP_HMAC_SECRET, DEFAULT_KC_AREA_ENDPOINT, timestamp)
     headers = build_headers(timestamp, hash_val, bearer_token)
 
     url = DEFAULT_BASE_URL.rstrip("/") + DEFAULT_KC_AREA_ENDPOINT
-    response = requests.get(url, headers=headers, timeout=30, verify=False)
+    response = requests.get(url, headers=headers, timeout=30, verify=True)
     response.raise_for_status()
 
     data = response.json()
@@ -1567,7 +1621,6 @@ def api_master_data():
             "kc_area_options": kc_area_options,
         })
     except Exception as e:
-        logger.exception("api_master_data error")
         return jsonify({"error": str(e)}), 500
 
 
@@ -1690,6 +1743,11 @@ def user_app():
             )
 
             final_state = result.get("final_state") or normalize_final_submit_state(result)
+            first_attempt_hard_400 = is_first_attempt_hard_400(result)
+
+            if first_attempt_hard_400:
+                final_state = "FAILED"
+
             update_submission_attempt(
                 submission_id,
                 final_state,
@@ -1706,7 +1764,27 @@ def user_app():
                 summarize_submit_result(result),
             )
 
-            if final_state in {"SUCCESS", "LIKELY_SUCCESS"}:
+            if first_attempt_hard_400:
+                mark_phone_as_invalid(phone_number, kc_token)
+                session.pop("assigned_phone_number", None)
+
+                new_phone_number = reserve_phone_for_kc(kc_token)
+                if new_phone_number:
+                    session["assigned_phone_number"] = new_phone_number
+                    assigned_phone_number = new_phone_number
+                    error = (
+                        "Submit pertama langsung mendapat status 400. "
+                        "Nomor lama ditandai invalid dan diganti otomatis ke nomor lain. "
+                        f"Nomor baru: {new_phone_number}"
+                    )
+                else:
+                    assigned_phone_number = ""
+                    error = (
+                        "Submit pertama langsung mendapat status 400. "
+                        "Nomor lama ditandai invalid, tetapi saat ini tidak ada nomor pengganti yang tersedia."
+                    )
+
+            elif final_state in {"SUCCESS", "LIKELY_SUCCESS"}:
                 mark_phone_as_used(phone_number, kc_token)
                 session.pop("assigned_phone_number", None)
                 increment_kc_token_usage(kc_token, quota_date)
@@ -1785,6 +1863,7 @@ def admin_logout():
 def admin_dashboard():
     token_rows = get_all_kc_tokens()
     usage_rows, usage_date = get_today_kc_usage_summary()
+    recent_submissions = get_recent_submission_attempts(limit=10)
 
     total_tokens = len(token_rows)
     active_tokens = len([r for r in token_rows if r["is_active"] == 1])
@@ -1821,6 +1900,7 @@ def admin_dashboard():
         active_tokens=active_tokens,
         total_submit_today=total_submit_today,
         submission_counts=submission_counts,
+        recent_submissions=recent_submissions,
     )
 
 
@@ -2152,8 +2232,7 @@ def admin_submissions():
         selected_limit=str(limit),
     )
 
+init_db()
 
 if __name__ == "__main__":
-    init_db()
-    seed_kc_tokens()
     app.run(host="0.0.0.0", port=5000, debug=True)
