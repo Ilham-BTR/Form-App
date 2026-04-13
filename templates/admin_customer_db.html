@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="id">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Database Customer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    .container {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 20px 16px 40px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 28px;
+    }
+
+    .title p {
+      margin: 6px 0 0;
+      color: #64748b;
+      font-size: 14px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .card,
+    .section {
+      background: #fff;
+      border-radius: 20px;
+      padding: 18px;
+      box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
+      margin-bottom: 18px;
+    }
+
+    .section {
+      overflow-x: auto;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .stat-box {
+      background: #fff;
+      border-radius: 20px;
+      padding: 18px;
+      box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
+    }
+
+    .stat-box h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      color: #64748b;
+      font-weight: normal;
+    }
+
+    .stat-box .big {
+      font-size: 28px;
+      font-weight: bold;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+
+    .field {
+      margin-bottom: 14px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 7px;
+      font-size: 13px;
+      font-weight: bold;
+    }
+
+    .input {
+      width: 100%;
+      border: none;
+      outline: none;
+      background: #f1f5f9;
+      border-radius: 14px;
+      padding: 14px;
+      font-size: 14px;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      font-size: 14px;
+    }
+
+    .checkbox-row label {
+      margin: 0;
+      font-weight: normal;
+    }
+
+    .btn {
+      border: none;
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      color: #fff;
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .btn-secondary {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+
+    .btn-danger {
+      background: #dc2626;
+    }
+
+    .btn-muted {
+      background: #475569;
+    }
+
+    .btn-warning {
+      background: #b45309;
+    }
+
+    .btn:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+
+    .btn-sm {
+      padding: 10px 12px;
+      font-size: 13px;
+      border-radius: 12px;
+    }
+
+    .message {
+      border-radius: 16px;
+      padding: 12px;
+      margin-bottom: 14px;
+      font-size: 14px;
+      display: none;
+    }
+
+    .message.show {
+      display: block;
+    }
+
+    .message-error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .message-success {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .helper-box {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1e3a8a;
+      border-radius: 16px;
+      padding: 14px 16px;
+      margin-bottom: 18px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1080px;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 12px 10px;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 14px;
+      vertical-align: top;
+    }
+
+    th {
+      color: #475569;
+      font-size: 13px;
+    }
+
+    .th-sort-btn {
+      border: none;
+      background: transparent;
+      padding: 0;
+      margin: 0;
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: bold;
+    }
+
+    .sort-indicator {
+      min-width: 10px;
+      display: inline-block;
+      color: #0f172a;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: bold;
+      white-space: nowrap;
+    }
+
+    .badge-active {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .badge-inactive {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .badge-used {
+      background: #ede9fe;
+      color: #5b21b6;
+    }
+
+    .badge-waiting {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .badge-ready {
+      background: #dbeafe;
+      color: #1d4ed8;
+    }
+
+    .row-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: nowrap;
+      align-items: center;
+      white-space: nowrap;
+    }
+
+    .table-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    .table-toolbar h2 {
+      margin: 0;
+    }
+
+    .toolbar-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .rows-form {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .rows-form label {
+      margin: 0;
+    }
+
+    .rows-select {
+      border: none;
+      background: #f1f5f9;
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 14px;
+      min-width: 130px;
+    }
+
+    .note {
+      margin-top: 8px;
+      color: #64748b;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .loading-row td {
+      color: #64748b;
+    }
+
+    @media (max-width: 980px) {
+      .grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .split {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .row-actions {
+        flex-wrap: wrap;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div class="title">
+        <h1>Database Nomor Customer</h1>
+        <p>Nomor disimpan di database, dibagikan ke KC dengan shuffle order, dan tidak bentrok saat dipakai bersamaan.
+        </p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-secondary" href="/admin">Kembali ke Dashboard</a>
+        <a class="btn btn-secondary" href="/user">Ke Form Submit</a>
+      </div>
+    </div>
+
+    <div class="helper-box">
+      Klik header tabel untuk mengurutkan data. Default tabel menampilkan <b>Reserved At terbaru</b> di paling atas.
+      Anda juga bisa pilih <b>Semua data</b> jika ingin melihat seluruh nomor yang tersimpan.
+    </div>
+
+    <div id="messageBox" class="message"></div>
+
+    <div class="grid">
+      <div class="stat-box">
+        <h3>Total Nomor</h3>
+        <div class="big" id="statTotal">{{ total_numbers }}</div>
+      </div>
+      <div class="stat-box">
+        <h3>Nomor Aktif</h3>
+        <div class="big" id="statActive">{{ active_numbers }}</div>
+      </div>
+      <div class="stat-box">
+        <h3>Siap Dipakai</h3>
+        <div class="big" id="statReady">{{ ready_numbers }}</div>
+      </div>
+      <div class="stat-box">
+        <h3>Sudah Terpakai</h3>
+        <div class="big" id="statUsed">{{ used_numbers }}</div>
+      </div>
+    </div>
+
+    <div class="split">
+      <div class="card">
+        <h2 style="margin-top:0;" id="formTitle">Tambah Nomor HP</h2>
+        <form id="customerForm" method="post" action="/admin/customers/save">
+          <input type="hidden" name="old_phone_number" id="oldPhoneNumber" value="">
+          <div class="field">
+            <label>Nomor HP</label>
+            <input class="input" type="text" name="phone_number" id="phoneNumberInput" required
+              placeholder="08123456789">
+          </div>
+          <div class="field">
+            <div class="checkbox-row">
+              <input type="checkbox" id="is_active" name="is_active" value="1" checked>
+              <label for="is_active">Aktifkan nomor ini agar bisa dipakai form</label>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn" id="saveButton" type="submit">Simpan Nomor</button>
+            <button class="btn btn-secondary" id="resetFormButton" type="button">Reset Form</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0;">Import Excel / CSV</h2>
+        <form id="importForm" method="post" action="/admin/customers/import" enctype="multipart/form-data">
+          <div class="field">
+            <label>Pilih file Excel / CSV</label>
+            <input class="input" type="file" name="excel_file" id="excelFileInput" accept=".xlsx,.csv" required>
+          </div>
+          <div class="field">
+            <div class="checkbox-row">
+              <input type="checkbox" id="import_is_active" name="is_active" value="1" checked>
+              <label for="import_is_active">Nomor hasil import langsung aktif</label>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn" id="importButton" type="submit">Import Database</button>
+          </div>
+          <div class="note">
+            Header yang dikenali: <b>nomor</b>, <b>nomor hp</b>, <b>phone</b>, <b>msisdn</b>, <b>telp</b>,
+            <b>telepon</b>.
+            Jika file tidak punya header, sistem membaca kolom pertama. Format didukung: <b>.xlsx</b> dan <b>.csv</b>.
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="table-toolbar">
+        <h2>Daftar Nomor Tersimpan</h2>
+        <div class="toolbar-actions">
+          <button class="btn btn-warning btn-sm" id="reshuffleButton" type="button">Reshuffle Nomor Ready</button>
+          <button class="btn btn-muted btn-sm" id="resetDistributionButton" type="button">Reset Distribusi</button>
+          <div class="rows-form">
+            <label for="rowsSelect">Tampilkan</label>
+            <select class="rows-select" id="rowsSelect">
+              <option value="3" {% if selected_row_limit=='3' %}selected{% endif %}>3 baris</option>
+              <option value="10" {% if selected_row_limit=='10' %}selected{% endif %}>10 baris</option>
+              <option value="100" {% if selected_row_limit=='100' %}selected{% endif %}>100 baris</option>
+              <option value="1000" {% if selected_row_limit=='1000' %}selected{% endif %}>1000 baris</option>
+              <option value="10000" {% if selected_row_limit=='10000' %}selected{% endif %}>10000 baris</option>
+              <option value="all" {% if selected_row_limit=='all' %}selected{% endif %}>Semua data</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th><button class="th-sort-btn" type="button" data-sort="phone_number">Nomor HP <span
+                  class="sort-indicator"></span></button></th>
+            <th><button class="th-sort-btn" type="button" data-sort="is_active">Status Aktif <span
+                  class="sort-indicator"></span></button></th>
+            <th><button class="th-sort-btn" type="button" data-sort="status_pemakaian">Status Pemakaian <span
+                  class="sort-indicator"></span></button></th>
+            <th><button class="th-sort-btn" type="button" data-sort="reserved_by_token">Reserved KC <span
+                  class="sort-indicator"></span></button></th>
+            <th><button class="th-sort-btn" type="button" data-sort="reserved_at">Reserved At <span
+                  class="sort-indicator"></span></button></th>
+            <th><button class="th-sort-btn" type="button" data-sort="updated_at">Updated <span
+                  class="sort-indicator"></span></button></th>
+            <th>Aksi</th>
+          </tr>
+        </thead>
+        <tbody id="customerTableBody">
+          <tr class="loading-row">
+            <td colspan="7">Memuat data...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const rowsSelect = document.getElementById('rowsSelect');
+      const tableBody = document.getElementById('customerTableBody');
+      const messageBox = document.getElementById('messageBox');
+      const customerForm = document.getElementById('customerForm');
+      const importForm = document.getElementById('importForm');
+      const formTitle = document.getElementById('formTitle');
+      const oldPhoneNumberInput = document.getElementById('oldPhoneNumber');
+      const phoneNumberInput = document.getElementById('phoneNumberInput');
+      const isActiveInput = document.getElementById('is_active');
+      const saveButton = document.getElementById('saveButton');
+      const importButton = document.getElementById('importButton');
+      const resetFormButton = document.getElementById('resetFormButton');
+      const reshuffleButton = document.getElementById('reshuffleButton');
+      const resetDistributionButton = document.getElementById('resetDistributionButton');
+      const importIsActive = document.getElementById('import_is_active');
+      const sortButtons = Array.from(document.querySelectorAll('.th-sort-btn'));
+
+      let currentSortBy = '{{ selected_sort_by or "reserved_at" }}';
+      let currentSortDir = '{{ selected_sort_dir or "desc" }}';
+
+      function showMessage(text, isError = false) {
+        messageBox.textContent = text || '';
+        messageBox.className = 'message show ' + (isError ? 'message-error' : 'message-success');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+
+      function clearMessage() {
+        messageBox.className = 'message';
+        messageBox.textContent = '';
+      }
+
+      function updateStats(stats) {
+        if (!stats) return;
+        document.getElementById('statTotal').textContent = stats.total_numbers ?? 0;
+        document.getElementById('statActive').textContent = stats.active_numbers ?? 0;
+        document.getElementById('statReady').textContent = stats.ready_numbers ?? 0;
+        document.getElementById('statUsed').textContent = stats.used_numbers ?? 0;
+      }
+
+      function statusBadge(row) {
+        if (row.is_used === 1) return '<span class="badge badge-used">Terpakai</span>';
+        if (row.reserved_by_token) return '<span class="badge badge-waiting">Sedang Dipakai</span>';
+        return '<span class="badge badge-ready">Siap</span>';
+      }
+
+      function activeBadge(row) {
+        return row.is_active === 1
+          ? '<span class="badge badge-active">Aktif</span>'
+          : '<span class="badge badge-inactive">Nonaktif</span>';
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function updateSortIndicators() {
+        sortButtons.forEach((button) => {
+          const indicator = button.querySelector('.sort-indicator');
+          if (!indicator) return;
+          if (button.dataset.sort === currentSortBy) {
+            indicator.textContent = currentSortDir === 'asc' ? '▲' : '▼';
+          } else {
+            indicator.textContent = '';
+          }
+        });
+      }
+
+      function renderTable(rows) {
+        if (!rows || rows.length === 0) {
+          tableBody.innerHTML = '<tr><td colspan="7">Belum ada nomor customer.</td></tr>';
+          return;
+        }
+
+        tableBody.innerHTML = rows.map((row) => `
+          <tr>
+            <td>${escapeHtml(row.phone_number)}</td>
+            <td>${activeBadge(row)}</td>
+            <td>${statusBadge(row)}</td>
+            <td>${escapeHtml(row.reserved_by_token || '-')}</td>
+            <td>${escapeHtml(row.reserved_at || '-')}</td>
+            <td>${escapeHtml(row.updated_at || '-')}</td>
+            <td>
+              <div class="row-actions">
+                <button class="btn btn-secondary btn-sm" type="button" data-action="edit" data-phone="${escapeHtml(row.phone_number)}">Edit</button>
+                <button class="btn btn-muted btn-sm" type="button" data-action="reset" data-phone="${escapeHtml(row.phone_number)}">Reset Status</button>
+                <button class="btn btn-danger btn-sm" type="button" data-action="delete" data-phone="${escapeHtml(row.phone_number)}">Hapus</button>
+              </div>
+            </td>
+          </tr>
+        `).join('');
+      }
+
+      async function fetchJson(url, options = {}) {
+        const response = await fetch(url, options);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || (data && data.ok === false)) {
+          throw new Error(data.error || data.message || 'Permintaan gagal.');
+        }
+        return data;
+      }
+
+      function resetForm() {
+        customerForm.reset();
+        oldPhoneNumberInput.value = '';
+        isActiveInput.checked = true;
+        formTitle.textContent = 'Tambah Nomor HP';
+        saveButton.textContent = 'Simpan Nomor';
+        phoneNumberInput.focus();
+      }
+
+      async function loadTable() {
+        clearMessage();
+        updateSortIndicators();
+        tableBody.innerHTML = '<tr class="loading-row"><td colspan="7">Memuat data...</td></tr>';
+        try {
+          const params = new URLSearchParams({
+            rows: rowsSelect.value,
+            sort_by: currentSortBy,
+            sort_dir: currentSortDir,
+          });
+          const data = await fetchJson('/admin/customers/data?' + params.toString());
+          updateStats(data.stats);
+          renderTable(data.rows);
+          updateSortIndicators();
+        } catch (error) {
+          tableBody.innerHTML = '<tr><td colspan="7">Gagal memuat data.</td></tr>';
+          showMessage(error.message || 'Gagal memuat data.', true);
+        }
+      }
+
+      async function postForm(url, formData, successCallback) {
+        const data = await fetchJson(url, { method: 'POST', body: formData });
+        updateStats(data.stats);
+        if (typeof successCallback === 'function') successCallback(data);
+        showMessage(data.message || 'Berhasil.');
+        await loadTable();
+      }
+
+      rowsSelect.addEventListener('change', loadTable);
+      resetFormButton.addEventListener('click', function () {
+        clearMessage();
+        resetForm();
+      });
+
+      sortButtons.forEach((button) => {
+        button.addEventListener('click', async function () {
+          const clickedSort = button.dataset.sort;
+          if (currentSortBy === clickedSort) {
+            currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+          } else {
+            currentSortBy = clickedSort;
+            currentSortDir = (clickedSort === 'reserved_at' || clickedSort === 'updated_at') ? 'desc' : 'asc';
+          }
+          await loadTable();
+        });
+      });
+
+      customerForm.addEventListener('submit', async function (event) {
+        event.preventDefault();
+        clearMessage();
+        saveButton.disabled = true;
+        const originalText = saveButton.textContent;
+        saveButton.textContent = 'Menyimpan...';
+        try {
+          const formData = new FormData(customerForm);
+          if (!formData.get('is_active')) formData.delete('is_active');
+          await postForm('/admin/customers/save', formData, function () {
+            resetForm();
+          });
+        } catch (error) {
+          showMessage(error.message || 'Gagal menyimpan nomor.', true);
+        } finally {
+          saveButton.disabled = false;
+          saveButton.textContent = originalText;
+        }
+      });
+
+      importForm.addEventListener('submit', async function (event) {
+        event.preventDefault();
+        clearMessage();
+        importButton.disabled = true;
+        const originalText = importButton.textContent;
+        importButton.textContent = 'Mengimpor...';
+        try {
+          const formData = new FormData(importForm);
+          if (!formData.get('is_active')) formData.delete('is_active');
+          await postForm('/admin/customers/import', formData, function () {
+            importForm.reset();
+            if (importIsActive) importIsActive.checked = true;
+          });
+        } catch (error) {
+          showMessage(error.message || 'Gagal import data.', true);
+        } finally {
+          importButton.disabled = false;
+          importButton.textContent = originalText;
+        }
+      });
+
+      reshuffleButton.addEventListener('click', async function () {
+        clearMessage();
+        reshuffleButton.disabled = true;
+        const originalText = reshuffleButton.textContent;
+        reshuffleButton.textContent = 'Memproses...';
+        try {
+          await postForm('/admin/customers/reshuffle', new FormData());
+        } catch (error) {
+          showMessage(error.message || 'Gagal reshuffle nomor.', true);
+        } finally {
+          reshuffleButton.disabled = false;
+          reshuffleButton.textContent = originalText;
+        }
+      });
+
+      resetDistributionButton.addEventListener('click', async function () {
+        if (!confirm('Reset distribusi akan melepas reserve nomor yang belum dipakai dan mengacak ulang nomor ready. Lanjutkan?')) return;
+        clearMessage();
+        resetDistributionButton.disabled = true;
+        const originalText = resetDistributionButton.textContent;
+        resetDistributionButton.textContent = 'Memproses...';
+        try {
+          await postForm('/admin/customers/reset-distribution', new FormData());
+        } catch (error) {
+          showMessage(error.message || 'Gagal reset distribusi.', true);
+        } finally {
+          resetDistributionButton.disabled = false;
+          resetDistributionButton.textContent = originalText;
+        }
+      });
+
+      tableBody.addEventListener('click', async function (event) {
+        const btn = event.target.closest('button[data-action]');
+        if (!btn) return;
+
+        const action = btn.dataset.action;
+        const phone = btn.dataset.phone;
+        clearMessage();
+
+        if (action === 'edit') {
+          try {
+            const data = await fetchJson('/admin/customers/item?phone_number=' + encodeURIComponent(phone));
+            oldPhoneNumberInput.value = data.item.phone_number || '';
+            phoneNumberInput.value = data.item.phone_number || '';
+            isActiveInput.checked = data.item.is_active === 1;
+            formTitle.textContent = 'Edit Nomor HP';
+            saveButton.textContent = 'Update Nomor';
+            phoneNumberInput.focus();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          } catch (error) {
+            showMessage(error.message || 'Gagal memuat data edit.', true);
+          }
+          return;
+        }
+
+        if (action === 'delete' && !confirm(`Hapus nomor ${phone}?`)) return;
+        if (action === 'reset' && !confirm(`Reset status nomor ${phone}?`)) return;
+
+        btn.disabled = true;
+        const originalText = btn.textContent;
+        btn.textContent = 'Proses...';
+        try {
+          const formData = new FormData();
+          formData.append('phone_number', phone);
+          await postForm('/admin/customers/' + action, formData, function () {
+            if (action === 'delete' && oldPhoneNumberInput.value === phone) resetForm();
+          });
+        } catch (error) {
+          showMessage(error.message || 'Aksi gagal.', true);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
+      });
+
+      updateSortIndicators();
+      loadTable();
+    });
+  </script>
+</body>
+
+</html>

@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="id">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login KC Token</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    .app {
+      max-width: 430px;
+      margin: 0 auto;
+      min-height: 100vh;
+      background: #f8fafc;
+      padding-bottom: 40px;
+    }
+
+    .hero {
+      background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+      color: white;
+      padding: 24px 18px 36px;
+      border-bottom-left-radius: 28px;
+      border-bottom-right-radius: 28px;
+      box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-size: 24px;
+    }
+
+    .hero p {
+      margin: 10px 0 0;
+      font-size: 14px;
+      line-height: 1.5;
+      color: rgba(255, 255, 255, 0.78);
+    }
+
+    .form-wrap {
+      padding: 16px;
+      margin-top: -16px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 24px;
+      padding: 18px;
+      box-shadow: 0 3px 14px rgba(15, 23, 42, 0.07);
+      margin-bottom: 14px;
+    }
+
+    .field {
+      margin-bottom: 14px;
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 7px;
+      font-size: 13px;
+      font-weight: bold;
+      color: #334155;
+    }
+
+    .input {
+      width: 100%;
+      border: none;
+      outline: none;
+      background: #f1f5f9;
+      border-radius: 16px;
+      padding: 14px;
+      font-size: 14px;
+      color: #0f172a;
+    }
+
+    .btn {
+      width: 100%;
+      border: none;
+      background: #0f172a;
+      color: white;
+      border-radius: 18px;
+      padding: 15px;
+      font-size: 15px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    .btn:hover {
+      background: #1e293b;
+    }
+
+    .error {
+      background: #fee2e2;
+      color: #991b1b;
+      border-radius: 18px;
+      padding: 14px;
+      font-size: 14px;
+      margin-bottom: 14px;
+    }
+
+    .info {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-radius: 18px;
+      padding: 14px;
+      font-size: 13px;
+      line-height: 1.5;
+      margin-bottom: 14px;
+    }
+
+    .admin-link {
+      text-align: center;
+      margin-top: 14px;
+    }
+
+    .admin-link a {
+      color: #334155;
+      text-decoration: none;
+      font-size: 13px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <div class="hero">
+      <h1>Login KC Token</h1>
+      <p>Masukkan KC token untuk masuk ke form survey customer.</p>
+    </div>
+
+    <div class="form-wrap">
+      {% if error %}
+      <div class="error">{{ error }}</div>
+      {% endif %}
+
+      <div class="info">
+        User tidak perlu isi bearer token. Bearer token sudah tersimpan di data KC token.
+      </div>
+
+      <form method="post" action="/">
+        <div class="card">
+          <div class="field">
+            <label>KC Token</label>
+            <input class="input" type="text" name="kc_token" placeholder="Masukkan KC token" required
+              value="{{ request.form.get('kc_token', '') }}">
+          </div>
+
+          <button class="btn" type="submit">Masuk ke Form</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  </div>
+</body>
+
+</html>

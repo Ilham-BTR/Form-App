@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="id">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin Dashboard</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px 16px 40px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: 28px;
+    }
+
+    .title p {
+      margin: 6px 0 0;
+      color: #64748b;
+      font-size: 14px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      border: none;
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      color: white;
+      border-radius: 14px;
+      padding: 14px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-decoration: none;
+      display: inline-block;
+      text-align: center;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(15, 23, 42, 0.25);
+    }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn-sm {
+      width: auto;
+      padding: 10px 12px;
+      font-size: 13px;
+    }
+
+    .btn-secondary {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+
+    .btn-danger {
+      background: #dc2626;
+    }
+
+    .btn-muted {
+      background: #475569;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .card {
+      background: white;
+      border-radius: 20px;
+      padding: 18px;
+      box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
+    }
+
+    .card h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      color: #64748b;
+      font-weight: normal;
+    }
+
+    .card .big {
+      font-size: 28px;
+      font-weight: bold;
+    }
+
+    .section {
+      background: white;
+      border-radius: 20px;
+      padding: 18px;
+      box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
+      margin-bottom: 18px;
+      overflow-x: auto;
+    }
+
+    .section h2 {
+      margin: 0 0 8px;
+      font-size: 20px;
+    }
+
+    .section p.section-desc {
+      margin: 0 0 14px;
+      color: #64748b;
+      font-size: 14px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 980px;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 12px 10px;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 14px;
+      vertical-align: top;
+    }
+
+    th {
+      color: #475569;
+      font-size: 13px;
+    }
+
+    code {
+      word-break: break-all;
+      font-size: 12px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+
+    .badge-active {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .badge-inactive {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .row-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    form.inline {
+      display: inline;
+      margin: 0;
+    }
+
+    .helper-box {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1e3a8a;
+      border-radius: 16px;
+      padding: 14px 16px;
+      margin-bottom: 18px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    @media (max-width: 800px) {
+      .stats {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div class="title">
+        <h1>Admin Dashboard</h1>
+        <p>Kelola KC token untuk flow submit utama Python, atur limit harian, dan cek penggunaan hari ini.</p>
+      </div>
+
+      <div class="actions">
+        <a class="btn btn-sm" href="/admin/token/add">Tambah KC Token</a>
+        <a class="btn btn-sm" href="/admin/customers">Database Customer</a>
+        <a class="btn btn-sm btn-secondary" href="/admin/submissions">Live Tracking</a>
+        <a class="btn btn-sm btn-secondary" href="/admin/submissions/export">Export Submissions CSV</a>
+        <a class="btn btn-sm btn-secondary" href="/user">Ke Form Submit</a>
+        <a class="btn btn-sm btn-danger" href="/admin/logout">Logout Admin</a>
+      </div>
+    </div>
+
+    <div class="helper-box">
+      Dashboard ini fokus untuk kebutuhan flow utama Python:
+      pengelolaan KC token, bearer token, status aktif/nonaktif, dan monitoring submit harian.
+    </div>
+
+    <div class="stats">
+      <div class="card">
+        <h3>Live Success</h3>
+        <div class="big">{{ submission_counts.SUCCESS if submission_counts else 0 }}</div>
+      </div>
+      <div class="card">
+        <h3>Likely Success</h3>
+        <div class="big">{{ submission_counts.LIKELY_SUCCESS if submission_counts else 0 }}</div>
+      </div>
+      <div class="card">
+        <h3>Failed</h3>
+        <div class="big">{{ submission_counts.FAILED if submission_counts else 0 }}</div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="card">
+        <h3>Total KC Token</h3>
+        <div class="big">{{ total_tokens }}</div>
+      </div>
+      <div class="card">
+        <h3>KC Token Aktif</h3>
+        <div class="big">{{ active_tokens }}</div>
+      </div>
+      <div class="card">
+        <h3>Total Submit Hari Ini</h3>
+        <div class="big">{{ total_submit_today }}</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Daftar KC Token</h2>
+      <p class="section-desc">Gunakan bagian ini untuk edit bearer token, ubah limit harian, atau aktif/nonaktifkan
+        token yang dipakai oleh form submit utama.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Nama KC</th>
+            <th>KC Token</th>
+            <th>Bearer Token</th>
+            <th>Limit Harian</th>
+            <th>Status</th>
+            <th>Aksi</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in token_rows %}
+          <tr>
+            <td>{{ row.kc_name }}</td>
+            <td><code>{{ row.kc_token }}</code></td>
+            <td><code>{{ row.bearer_token_masked }}</code></td>
+            <td>{{ row.daily_limit }}</td>
+            <td>
+              {% if row.is_active == 1 %}
+              <span class="badge badge-active">Aktif</span>
+              {% else %}
+              <span class="badge badge-inactive">Nonaktif</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="row-actions">
+                <a class="btn btn-sm btn-secondary" href="/admin/token/{{ row.kc_token }}/edit">Edit</a>
+
+                <form class="inline" method="post" action="/admin/token/{{ row.kc_token }}/toggle">
+                  <button class="btn btn-sm btn-muted" type="submit">
+                    {% if row.is_active == 1 %}Nonaktifkan{% else %}Aktifkan{% endif %}
+                  </button>
+                </form>
+
+                <form class="inline" method="post" action="/admin/token/{{ row.kc_token }}/delete"
+                  onsubmit="return confirm('Hapus KC token ini?');">
+                  <button class="btn btn-sm btn-danger" type="submit">Hapus</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not token_rows %}
+          <tr>
+            <td colspan="6">Belum ada KC token.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>Usage Hari Ini ({{ usage_date }})</h2>
+      <p class="section-desc">Ringkasan pemakaian token untuk submit form utama pada hari ini.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Nama KC</th>
+            <th>KC Token</th>
+            <th>Bearer Token</th>
+            <th>Submit Hari Ini</th>
+            <th>Limit</th>
+            <th>Sisa</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in usage_rows %}
+          <tr>
+            <td>{{ row.kc_name }}</td>
+            <td><code>{{ row.kc_token }}</code></td>
+            <td><code>{{ row.bearer_token_masked }}</code></td>
+            <td>{{ row.total_submit }}</td>
+            <td>{{ row.daily_limit }}</td>
+            <td>
+              {% set remaining = row.daily_limit - row.total_submit %}
+              {{ 0 if remaining < 0 else remaining }} </td>
+            <td>
+              {% if row.is_active == 1 %}
+              <span class="badge badge-active">Aktif</span>
+              {% else %}
+              <span class="badge badge-inactive">Nonaktif</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not usage_rows %}
+          <tr>
+            <td colspan="7">Belum ada data usage.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>10 Submit Terbaru</h2>
+      <p class="section-desc">Ringkasan cepat untuk audit hasil submit terbaru tanpa perlu pindah halaman.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Waktu</th>
+            <th>Status</th>
+            <th>HTTP</th>
+            <th>Attempts</th>
+            <th>Nomor HP</th>
+            <th>KC Token</th>
+            <th>Customer</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in recent_submissions %}
+          <tr>
+            <td>{{ row.created_at }}</td>
+            <td>{{ row.status_local }}</td>
+            <td>{{ row.final_status_code or '-' }}</td>
+            <td>{{ row.attempt_summary }}</td>
+            <td><code>{{ row.phone_number }}</code></td>
+            <td><code>{{ row.kc_token }}</code></td>
+            <td>{{ row.request_summary.customer_name if row.request_summary else '-' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7">Belum ada data submit.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</body>
+
+</html>
