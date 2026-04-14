@@ -1759,7 +1759,6 @@ def home():
                         "Token otomatis dinonaktifkan. Hubungi admin atau gunakan token lain."
                     )
                 else:
-                    session["bearer_token"] = kc_detail["bearer_token"]
                     session["kc_token"] = kc_token
                     session["token_login_date"] = get_today_wib()
                     session["kc_name"] = kc_detail["kc_name"] or "-"
@@ -1778,7 +1777,8 @@ def logout():
 @app.route("/api/master-data", methods=["POST"])
 def api_master_data():
     try:
-        if "bearer_token" not in session or "kc_token" not in session:
+        session.pop("bearer_token", None)
+        if "kc_token" not in session:
             return jsonify({"error": "Session token tidak ditemukan. Silakan login ulang."}), 401
 
         if clear_expired_user_session():
@@ -1822,7 +1822,8 @@ def api_master_data():
 
 @app.route("/user", methods=["GET", "POST"])
 def user_app():
-    if "bearer_token" not in session or "kc_token" not in session:
+    session.pop("bearer_token", None)
+    if "kc_token" not in session:
         return redirect(url_for("home"))
 
     if clear_expired_user_session():
