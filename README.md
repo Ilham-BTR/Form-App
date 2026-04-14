@@ -8,10 +8,10 @@ Aplikasi Flask untuk form submit survey customer berbasis KC token. Aplikasi ini
 - Bearer token disimpan dan dikelola dari halaman admin.
 - Nomor customer dibagikan otomatis dari database dan dikunci per KC token.
 - Submit survey dengan upload foto transaksi dan screenshot chat.
-- Retry otomatis untuk error `401`, `429`, `5xx`, timeout, dan network error.
+- Kompres foto di browser dengan target sekitar 500 KB per file sebelum submit.
+- Retry dilakukan manual oleh user jika submit gagal.
 - Status submit dibedakan menjadi `SUCCESS`, `LIKELY_SUCCESS`, `INVALID`, `FAILED`, dan `PENDING`.
 - Nomor invalid/rusak otomatis diganti pada kondisi yang sesuai.
-- Kompres gambar di browser sebelum submit jika file lebih besar dari 800 KB.
 - Overlay loading dengan timer saat submit berjalan.
 - Cache master data BUMO dan KC Area di browser memakai `sessionStorage`.
 - Admin dashboard untuk token, database customer, dan live tracking submit.
@@ -134,11 +134,10 @@ Nomor customer disimpan di `customer_directory`. Token KC disimpan di `valid_kc_
 1. User login memakai KC token.
 2. Sistem reserve satu nomor customer untuk KC tersebut.
 3. User isi form dan upload foto.
-4. Browser mengompres gambar jika ukuran file lebih dari 800 KB.
-5. Overlay loading muncul dan timer berjalan.
-6. Backend submit request ke API tujuan.
-7. Jika perlu, backend retry otomatis.
-8. Setelah final:
+4. Overlay loading muncul dan timer berjalan.
+5. Backend submit request ke API tujuan satu kali.
+6. Jika gagal, user bisa retry manual dengan submit ulang.
+7. Setelah final:
    - `SUCCESS`: nomor ditandai used, kuota naik, form reset, nomor baru diambil.
    - `LIKELY_SUCCESS`: dianggap kemungkinan sudah tercatat, nomor tidak di-invalidasi, form reset, nomor baru diambil.
    - `INVALID`: nomor ditandai invalid/rusak dan diganti.
@@ -146,31 +145,27 @@ Nomor customer disimpan di `customer_directory`. Token KC disimpan di `valid_kc_
 
 ## Retry Policy
 
-- `401`: retry maksimal 3 kali, delay random 1-2 detik.
-- `429`: retry maksimal 3 kali, delay random 8-15 detik.
-- `5xx`: retry maksimal 3 kali, delay random 2-5 detik.
-- Timeout atau network error: retry maksimal 3 kali, delay random 2-5 detik.
-- `400`: tidak retry.
+- Backend tidak melakukan retry otomatis.
+- Setiap klik submit membuat satu request ke API tujuan.
+- Jika submit gagal, nomor tetap sama untuk retry manual, kecuali response `400` non-duplicate yang dianggap invalid.
+- `401` dianggap masalah bearer token atau HMAC secret, bukan nomor invalid.
 
-Setiap attempt membuat timestamp dan hash baru. Hash lama tidak dipakai ulang.
+Setiap submit membuat timestamp dan hash baru. Hash lama tidak dipakai ulang.
 
 ## Status Submit
 
 - `SUCCESS`: response final `2xx`.
-- `LIKELY_SUCCESS`: error retryable lalu response final `400` duplicate, misalnya pesan sudah pernah mengisi form.
-- `INVALID`: attempt pertama langsung `400`, atau retry `401` habis dan status akhir tetap `401`.
-- `FAILED`: retry habis dan masih gagal di luar rule invalid/likely success.
+- `LIKELY_SUCCESS`: response `400` duplicate, misalnya pesan sudah pernah mengisi form.
+- `INVALID`: response `400` non-duplicate.
+- `FAILED`: gagal di luar rule invalid/likely success.
 - `PENDING`: submit attempt sudah dicatat tetapi belum final.
 
-## Image Compression
+## Upload Gambar
 
-Kompresi dilakukan di browser sebelum submit:
-
-- File `<= 800 KB`: pakai file asli.
-- File `> 800 KB`: resize max 1600 px, fallback 1280 px.
-- Output diubah ke JPEG.
-- Quality diturunkan bertahap dari 0.95.
-- Target hasil 500-800 KB jika memungkinkan.
+- Browser mencoba kompres foto transaksi dan screenshot chat di sisi client dengan target sekitar `500 KB` per file.
+- Jika file sudah `500 KB` atau lebih kecil, kompres dilewati.
+- Jika kompres gagal atau terlalu lama, file asli tetap dikirim agar submit tidak stuck.
+- Backend/Railway tidak melakukan kompres gambar.
 
 ## Logging
 
@@ -184,8 +179,6 @@ Log mencakup:
 
 - attempt ke berapa
 - status code tiap attempt
-- alasan retry
-- delay retry
 - final state
 - apakah nomor diganti atau tidak
 

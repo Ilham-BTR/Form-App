@@ -467,13 +467,13 @@
           <div class="field">
             <label>Transaction Photo</label>
             <input class="file" type="file" name="transaction_photo" accept="image/*" required>
-            <div class="hint">Wajib upload foto transaksi. File dikirim apa adanya.</div>
+            <div class="hint">Wajib upload foto transaksi. File di atas 500 KB dikompres di browser sebelum dikirim.</div>
           </div>
 
           <div class="field">
             <label>Chat Photo</label>
             <input class="file" type="file" name="chat_photo" accept="image/*" required>
-            <div class="hint">Wajib upload screenshot chat. File dikirim apa adanya.</div>
+            <div class="hint">Wajib upload screenshot chat. File di atas 500 KB dikompres di browser sebelum dikirim.</div>
           </div>
         </div>
 
@@ -515,6 +515,10 @@
     const shouldResetFormAfterSubmit = {{ reset_form|tojson }};
     const masterDataCacheKey = {{ ('kc_master_data::' ~ kc_token)|tojson }};
     const masterDataCacheTtlMs = 6 * 60 * 60 * 1000;
+    const imageCompressTargetBytes = 500 * 1024;
+    const imageCompressTimeoutMs = 7000;
+    const imageCompressMaxSides = [1600, 1280, 1024];
+    const imageCompressQualities = [0.82, 0.74, 0.66, 0.58, 0.5];
 
     let allBumoOptions = [];
     let allKcAreaOptions = [];
@@ -551,6 +555,150 @@
       }
 
       return items;
+    }
+
+    function shouldCompressImageFile(file) {
+      if (!file || !file.type || !file.type.startsWith('image/')) return false;
+      if (file.type === 'image/gif') return false;
+      return file.size > imageCompressTargetBytes;
+    }
+
+    function loadImageForCompression(file) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        const objectUrl = URL.createObjectURL(file);
+
+        img.onload = () => {
+          URL.revokeObjectURL(objectUrl);
+          resolve(img);
+        };
+
+        img.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error('Gagal membaca gambar.'));
+        };
+
+        img.src = objectUrl;
+      });
+    }
+
+    function canvasToBlob(canvas, mimeType, quality) {
+      return new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('Gagal membuat file kompres.'));
+          }
+        }, mimeType, quality);
+      });
+    }
+
+    function getCompressedImageSize(width, height, maxSide) {
+      const largestSide = Math.max(width, height);
+      if (largestSide <= maxSide) {
+        return { width, height };
+      }
+
+      const ratio = maxSide / largestSide;
+      return {
+        width: Math.max(1, Math.round(width * ratio)),
+        height: Math.max(1, Math.round(height * ratio)),
+      };
+    }
+
+    function buildCompressedImageFileName(fileName) {
+      const baseName = String(fileName || 'upload').replace(/\.[^/.]+$/, '') || 'upload';
+      return `${baseName}.jpg`;
+    }
+
+    async function compressImageFile(file) {
+      if (!shouldCompressImageFile(file)) return file;
+
+      const img = await loadImageForCompression(file);
+      const originalWidth = img.naturalWidth || img.width;
+      const originalHeight = img.naturalHeight || img.height;
+      let bestBlob = null;
+
+      for (const maxSide of imageCompressMaxSides) {
+        const size = getCompressedImageSize(originalWidth, originalHeight, maxSide);
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.width = size.width;
+        canvas.height = size.height;
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, size.width, size.height);
+        context.drawImage(img, 0, 0, size.width, size.height);
+
+        for (const quality of imageCompressQualities) {
+          const blob = await canvasToBlob(canvas, 'image/jpeg', quality);
+          if (!bestBlob || blob.size < bestBlob.size) {
+            bestBlob = blob;
+          }
+          if (blob.size <= imageCompressTargetBytes) {
+            return new File([blob], buildCompressedImageFileName(file.name), {
+              type: 'image/jpeg',
+              lastModified: Date.now(),
+            });
+          }
+        }
+      }
+
+      if (bestBlob && bestBlob.size < file.size) {
+        return new File([bestBlob], buildCompressedImageFileName(file.name), {
+          type: 'image/jpeg',
+          lastModified: Date.now(),
+        });
+      }
+
+      return file;
+    }
+
+    function replaceFileInputFile(input, file) {
+      if (!window.DataTransfer || !input || !file) return false;
+
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      input.files = dataTransfer.files;
+      return true;
+    }
+
+    function runWithTimeout(promise, timeoutMs, timeoutMessage) {
+      let timeoutId = null;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = window.setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+      });
+
+      return Promise.race([promise, timeoutPromise]).finally(() => {
+        if (timeoutId) window.clearTimeout(timeoutId);
+      });
+    }
+
+    async function compressSurveyImagesBeforeSubmit() {
+      const fileInputs = Array.from(surveyForm.querySelectorAll('input[type="file"]'))
+        .filter(input => ['transaction_photo', 'chat_photo'].includes(input.name));
+
+      const filesToCompress = fileInputs
+        .map(input => ({ input, file: input.files && input.files[0] }))
+        .filter(item => shouldCompressImageFile(item.file));
+
+      if (filesToCompress.length === 0) return;
+
+      const compressedItems = await runWithTimeout(
+        Promise.all(filesToCompress.map(async (item) => ({
+          input: item.input,
+          originalFile: item.file,
+          compressedFile: await compressImageFile(item.file),
+        }))),
+        imageCompressTimeoutMs,
+        'Kompres gambar terlalu lama.'
+      );
+
+      compressedItems.forEach((item) => {
+        if (item.compressedFile && item.compressedFile !== item.originalFile) {
+          replaceFileInputFile(item.input, item.compressedFile);
+        }
+      });
     }
 
     function renderOptions(selectEl, items, valueKey, labelKey, firstLabel, selectedValue) {
@@ -714,9 +862,18 @@
       loadingTimer.textContent = formatElapsedTime(elapsedSeconds);
 
       if (loadingStatus) {
+        if (loadingPhase === 'compressing') {
+          if (elapsedSeconds >= 5) {
+            loadingStatus.textContent = 'Jika kompres terlalu lama, file asli akan dikirim otomatis.';
+          } else if (elapsedSeconds >= 2) {
+            loadingStatus.textContent = 'Masih mengompres gambar di browser.';
+          }
+          return;
+        }
+
         if (loadingPhase === 'submitting') {
           if (elapsedSeconds >= 20) {
-            loadingStatus.textContent = 'Masih diproses. Sistem mungkin sedang retry otomatis.';
+            loadingStatus.textContent = 'Masih menunggu response server. Jangan tutup halaman ini.';
           } else if (elapsedSeconds >= 8) {
             loadingStatus.textContent = 'Menunggu response server. Jangan tutup halaman ini.';
           }
@@ -807,7 +964,7 @@
     }
 
     if (surveyForm) {
-      surveyForm.addEventListener('submit', function (e) {
+      surveyForm.addEventListener('submit', async function (e) {
         const products = buildProductTransactions();
         if (products.length === 0) {
           e.preventDefault();
@@ -820,10 +977,22 @@
           return;
         }
 
+        e.preventDefault();
         isSubmitting = true;
         setSubmitLoading(true);
-        setLoadingPhase('submitting', 'Mengirim survey. Jangan tutup halaman ini.');
-        showLoadingOverlay('submitting');
+        showLoadingOverlay('compressing');
+        setLoadingPhase('compressing', 'Mengompres gambar di browser. Target sekitar 500 KB per file.');
+
+        let submitMessage = 'Mengirim survey. Jangan tutup halaman ini.';
+        try {
+          await compressSurveyImagesBeforeSubmit();
+        } catch (err) {
+          console.warn('Kompres gambar dilewati:', err);
+          submitMessage = 'Kompres dilewati. Mengirim file asli.';
+        }
+
+        setLoadingPhase('submitting', submitMessage);
+        HTMLFormElement.prototype.submit.call(surveyForm);
       });
     }
 
