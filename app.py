@@ -1732,6 +1732,11 @@ def mask_bearer_token(token):
     return token[:6] + "..." + token[-4:]
 
 
+@app.route("/health")
+def healthcheck():
+    return jsonify({"status": "ok"})
+
+
 @app.route("/", methods=["GET", "POST"])
 def home():
     error = None
@@ -2501,4 +2506,5 @@ def admin_submissions():
 init_db()
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("PORT", "5000"))
+    app.run(host="0.0.0.0", port=port, debug=not IS_PROD)
