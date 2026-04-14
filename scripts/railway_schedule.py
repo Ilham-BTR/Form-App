@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -16,8 +17,35 @@ def require_env(name):
     return value
 
 
+def clean_secret_value(name):
+    value = require_env(name)
+    lines = [line.strip() for line in value.splitlines() if line.strip()]
+    for line in lines:
+        prefix = line.split(":", 1)[0].strip().upper() if ":" in line else ""
+        if prefix in {"SECRET", "VALUE"}:
+            return line.split(":", 1)[1].strip()
+    for line in lines:
+        prefix = line.split(":", 1)[0].strip().upper() if ":" in line else ""
+        if prefix == name.upper():
+            return line.split(":", 1)[1].strip()
+    if len(lines) > 1:
+        return lines[-1]
+    return value
+
+
+def clean_uuid_secret(name):
+    value = clean_secret_value(name)
+    match = re.search(
+        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+        value,
+    )
+    if not match:
+        raise RuntimeError(f"{name} harus berupa UUID Railway.")
+    return match.group(0)
+
+
 def get_railway_token():
-    value = require_env("RAILWAY_TOKEN")
+    value = clean_secret_value("RAILWAY_TOKEN")
     if ":" in value and value.split(":", 1)[0].strip().upper() == "RAILWAY_TOKEN":
         value = value.split(":", 1)[1].strip()
     if value.lower().startswith("bearer "):
@@ -142,8 +170,8 @@ def main(argv):
     parser.add_argument("--action", choices=["stop", "start"], required=True)
     args = parser.parse_args(argv)
 
-    service_id = require_env("RAILWAY_SERVICE_ID")
-    environment_id = require_env("RAILWAY_ENVIRONMENT_ID")
+    service_id = clean_uuid_secret("RAILWAY_SERVICE_ID")
+    environment_id = clean_uuid_secret("RAILWAY_ENVIRONMENT_ID")
     deployment = get_latest_deployment(service_id, environment_id)
     deployment_id = deployment["id"]
     print(f"Latest deployment: {deployment_id} ({deployment.get('status')})")
