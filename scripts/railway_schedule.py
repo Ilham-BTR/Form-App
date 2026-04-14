@@ -16,14 +16,19 @@ def require_env(name):
     return value
 
 
-def graphql_request(query, variables):
-    token = require_env("RAILWAY_TOKEN")
+def build_auth_headers(token, auth_mode):
+    if auth_mode == "project":
+        return {"Project-Access-Token": token}
+    return {"Authorization": f"Bearer {token}"}
+
+
+def execute_graphql_request(query, variables, token, auth_mode):
     body = json.dumps({"query": query, "variables": variables}).encode("utf-8")
     request = urllib.request.Request(
         API_URL,
         data=body,
         headers={
-            "Authorization": f"Bearer {token}",
+            **build_auth_headers(token, auth_mode),
             "Content-Type": "application/json",
             "Accept": "application/json",
         },
@@ -41,6 +46,18 @@ def graphql_request(query, variables):
         raise RuntimeError(json.dumps(payload["errors"], ensure_ascii=False))
 
     return payload.get("data") or {}
+
+
+def graphql_request(query, variables):
+    token = require_env("RAILWAY_TOKEN")
+    try:
+        return execute_graphql_request(query, variables, token, "bearer")
+    except RuntimeError as exc:
+        error_text = str(exc).lower()
+        if "not authorized" not in error_text and "unauthorized" not in error_text:
+            raise
+        print("Bearer auth failed, retrying as Railway project token.", file=sys.stderr)
+        return execute_graphql_request(query, variables, token, "project")
 
 
 def get_latest_deployment(service_id, environment_id):
