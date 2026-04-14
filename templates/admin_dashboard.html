@@ -323,7 +323,7 @@
       </form>
       <div class="hint">
         Header wajib: <b>kc_name</b>, <b>bearer_token</b>, <b>daily_limit</b>, dan <b>is_active</b>.
-        Header opsional: <b>kc_area</b>, <b>kc_token</b>, dan <b>sudah_terpakai</b>.
+        Header opsional: <b>token_area</b>, <b>kc_token</b>, dan <b>sudah_terpakai</b>.
         Jika KC token kosong, sistem membuat token otomatis dengan format KC-xxxxxxxxxxxxxxxx.
         Export detail token berisi bearer token asli dan pemakaian hari ini.
       </div>
@@ -377,7 +377,7 @@
           <label for="token_sort_by">Sort</label>
           <select class="input" id="token_sort_by" name="token_sort_by">
             <option value="kc_name" {% if selected_token_sort_by == 'kc_name' %}selected{% endif %}>Nama KC</option>
-            <option value="kc_area" {% if selected_token_sort_by == 'kc_area' %}selected{% endif %}>Area</option>
+            <option value="token_area" {% if selected_token_sort_by == 'token_area' %}selected{% endif %}>Area</option>
             <option value="kc_token" {% if selected_token_sort_by == 'kc_token' %}selected{% endif %}>KC Token</option>
             <option value="daily_limit" {% if selected_token_sort_by == 'daily_limit' %}selected{% endif %}>Limit Harian</option>
             <option value="total_submit" {% if selected_token_sort_by == 'total_submit' %}selected{% endif %}>Terpakai Hari Ini</option>
@@ -421,7 +421,7 @@
           {% for row in token_rows %}
           <tr>
             <td>{{ row.kc_name }}</td>
-            <td>{{ row.kc_area }}</td>
+            <td>{{ row.token_area }}</td>
             <td><code>{{ row.kc_token }}</code></td>
             <td><code>{{ row.bearer_token_masked }}</code></td>
             <td>{{ row.daily_limit }}</td>
@@ -480,7 +480,7 @@
           {% for row in usage_rows %}
           <tr>
             <td>{{ row.kc_name }}</td>
-            <td>{{ row.kc_area }}</td>
+            <td>{{ row.token_area }}</td>
             <td><code>{{ row.kc_token }}</code></td>
             <td><code>{{ row.bearer_token_masked }}</code></td>
             <td>{{ row.total_submit }}</td>

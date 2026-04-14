@@ -112,7 +112,7 @@ Gunakan `Export Detail Token` untuk download CSV berisi data token yang bisa dii
 Format file `.xlsx` atau `.csv`:
 
 - Header wajib: `kc_name`, `bearer_token`, `daily_limit`, `is_active`
-- Header opsional: `kc_area`, `kc_token`, `sudah_terpakai`
+- Header opsional: `token_area`, `kc_token`, `sudah_terpakai`
 - Jika `kc_token` kosong atau tidak ada, aplikasi membuat KC token otomatis dengan format `KC-xxxxxxxxxxxxxxxx`.
 - Jika `kc_token` sudah ada, nama KC, area, bearer token, limit harian, dan status aktif/nonaktif akan di-update.
 - `sudah_terpakai` mengisi pemakaian token untuk tanggal WIB hari ini jika kolomnya ada di file.
