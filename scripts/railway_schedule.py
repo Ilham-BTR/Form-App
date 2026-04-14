@@ -16,6 +16,18 @@ def require_env(name):
     return value
 
 
+def get_railway_token():
+    value = require_env("RAILWAY_TOKEN")
+    if ":" in value and value.split(":", 1)[0].strip().upper() == "RAILWAY_TOKEN":
+        value = value.split(":", 1)[1].strip()
+    if value.lower().startswith("bearer "):
+        value = value[7:].strip()
+    token = "".join(value.split())
+    if not token:
+        raise RuntimeError("RAILWAY_TOKEN kosong setelah dibersihkan.")
+    return token
+
+
 def build_auth_headers(token, auth_mode):
     if auth_mode == "project":
         return {"Project-Access-Token": token}
@@ -49,7 +61,7 @@ def execute_graphql_request(query, variables, token, auth_mode):
 
 
 def graphql_request(query, variables):
-    token = require_env("RAILWAY_TOKEN")
+    token = get_railway_token()
     try:
         return execute_graphql_request(query, variables, token, "bearer")
     except RuntimeError as exc:
