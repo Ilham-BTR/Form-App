@@ -123,10 +123,16 @@ def init_db():
         CREATE TABLE IF NOT EXISTS valid_kc_tokens (
             kc_token TEXT PRIMARY KEY,
             kc_name TEXT NOT NULL,
+            kc_area TEXT NOT NULL DEFAULT '',
             bearer_token TEXT NOT NULL,
             daily_limit INTEGER NOT NULL DEFAULT 40,
             is_active INTEGER NOT NULL DEFAULT 1
         )
+    """)
+
+    cur.execute("""
+        ALTER TABLE valid_kc_tokens
+        ADD COLUMN IF NOT EXISTS kc_area TEXT NOT NULL DEFAULT ''
     """)
 
     cur.execute("""
@@ -182,20 +188,20 @@ def init_db():
 
 def seed_kc_tokens():
     sample_tokens = [
-        ("KC-JKT-001", "KC Jakarta", "isi_bearer_jakarta", 40, 1),
-        ("KC-BDG-001", "KC Bandung", "isi_bearer_bandung", 40, 1),
-        ("KC-SBY-001", "KC Surabaya", "isi_bearer_surabaya", 40, 1),
+        ("KC-JKT-001", "KC Jakarta", "Jakarta", "isi_bearer_jakarta", 40, 1),
+        ("KC-BDG-001", "KC Bandung", "Bandung", "isi_bearer_bandung", 40, 1),
+        ("KC-SBY-001", "KC Surabaya", "Surabaya", "isi_bearer_surabaya", 40, 1),
     ]
 
     conn = get_db_connection()
     cur = conn.cursor()
 
-    for kc_token, kc_name, bearer_token, daily_limit, is_active in sample_tokens:
+    for kc_token, kc_name, kc_area, bearer_token, daily_limit, is_active in sample_tokens:
         cur.execute("""
-            INSERT INTO valid_kc_tokens (kc_token, kc_name, bearer_token, daily_limit, is_active)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO valid_kc_tokens (kc_token, kc_name, kc_area, bearer_token, daily_limit, is_active)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (kc_token) DO NOTHING
-        """, (kc_token, kc_name, bearer_token, daily_limit, is_active))
+        """, (kc_token, kc_name, kc_area, bearer_token, daily_limit, is_active))
 
     conn.commit()
     conn.close()
@@ -1142,6 +1148,7 @@ def import_kc_tokens(uploaded_file):
     header_aliases = {
         "kc_token": {"kc token", "token kc", "token"},
         "kc_name": {"kc name", "nama kc", "nama"},
+        "kc_area": {"kc area", "area kc", "area"},
         "bearer_token": {"bearer token", "bearer", "token bearer"},
         "daily_limit": {"daily limit", "limit harian", "limit", "kuota", "kuota harian"},
         "is_active": {"is active", "aktif", "active", "status"},
@@ -1180,6 +1187,7 @@ def import_kc_tokens(uploaded_file):
             try:
                 kc_token = str(get_import_cell(row, header_index, "kc_token") or "").strip()
                 kc_name = str(get_import_cell(row, header_index, "kc_name") or "").strip()
+                kc_area = str(get_import_cell(row, header_index, "kc_area") or "").strip()
                 bearer_token = str(get_import_cell(row, header_index, "bearer_token") or "").strip()
 
                 if not kc_name:
@@ -1192,29 +1200,32 @@ def import_kc_tokens(uploaded_file):
 
                 cur.execute(
                     """
-                    SELECT bearer_token, daily_limit, is_active
+                    SELECT bearer_token, daily_limit, is_active, kc_area
                     FROM valid_kc_tokens
                     WHERE kc_token = %s
                     """,
                     (kc_token,),
                 )
                 existing = cur.fetchone()
+                if existing and "kc_area" not in header_index:
+                    kc_area = existing["kc_area"] or ""
 
                 daily_limit = parse_positive_int(get_import_cell(row, header_index, "daily_limit"), "Daily limit")
                 is_active = parse_active_value(get_import_cell(row, header_index, "is_active"))
 
                 cur.execute(
                     """
-                    INSERT INTO valid_kc_tokens (kc_token, kc_name, bearer_token, daily_limit, is_active)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO valid_kc_tokens (kc_token, kc_name, kc_area, bearer_token, daily_limit, is_active)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (kc_token)
                     DO UPDATE SET
                         kc_name = EXCLUDED.kc_name,
+                        kc_area = EXCLUDED.kc_area,
                         bearer_token = EXCLUDED.bearer_token,
                         daily_limit = EXCLUDED.daily_limit,
                         is_active = EXCLUDED.is_active
                     """,
-                    (kc_token, kc_name, bearer_token, daily_limit, int(is_active)),
+                    (kc_token, kc_name, kc_area, bearer_token, daily_limit, int(is_active)),
                 )
                 if "used_today" in header_index:
                     used_today = parse_nonnegative_int(get_import_cell(row, header_index, "used_today"), "Sudah terpakai")
@@ -1317,7 +1328,7 @@ def get_kc_token_detail(kc_token):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT kc_token, kc_name, bearer_token, daily_limit, is_active
+        SELECT kc_token, kc_name, kc_area, bearer_token, daily_limit, is_active
         FROM valid_kc_tokens
         WHERE kc_token = %s
     """, (kc_token,))
@@ -1330,27 +1341,91 @@ def get_all_kc_tokens():
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT kc_token, kc_name, bearer_token, daily_limit, is_active
+        SELECT kc_token, kc_name, kc_area, bearer_token, daily_limit, is_active
         FROM valid_kc_tokens
-        ORDER BY kc_name ASC, kc_token ASC
+        ORDER BY kc_area ASC, kc_name ASC, kc_token ASC
     """)
     rows = cur.fetchall()
     conn.close()
     return rows
 
 
-def create_kc_token(kc_token, kc_name, bearer_token, daily_limit):
+def normalize_token_rows_param(raw_value):
+    allowed_values = {"3", "10", "100", "all"}
+    current = str(raw_value or "10").strip().lower()
+    if current not in allowed_values:
+        current = "10"
+    return current
+
+
+def token_rows_value_to_limit(rows_value):
+    return None if rows_value == "all" else int(rows_value)
+
+
+def normalize_token_sort(sort_by, sort_dir):
+    allowed_sort_by = {"kc_name", "kc_area", "kc_token", "daily_limit", "total_submit", "is_active"}
+    current_sort_by = str(sort_by or "kc_name").strip().lower()
+    if current_sort_by not in allowed_sort_by:
+        current_sort_by = "kc_name"
+
+    current_sort_dir = "desc" if str(sort_dir or "asc").strip().lower() == "desc" else "asc"
+    return current_sort_by, current_sort_dir
+
+
+def get_token_sort_value(row, sort_by):
+    if sort_by in {"daily_limit", "total_submit", "is_active"}:
+        return int(row.get(sort_by) or 0)
+    return str(row.get(sort_by) or "").lower()
+
+
+def filter_sort_limit_token_rows(rows, filter_text="", sort_by="kc_name", sort_dir="asc", rows_value="10"):
+    current_filter = str(filter_text or "").strip().lower()
+    sort_by, sort_dir = normalize_token_sort(sort_by, sort_dir)
+    rows_value = normalize_token_rows_param(rows_value)
+
+    filtered_rows = list(rows)
+    if current_filter:
+        filtered_rows = [
+            row for row in filtered_rows
+            if current_filter in " ".join([
+                str(row.get("kc_name") or ""),
+                str(row.get("kc_area") or ""),
+                str(row.get("kc_token") or ""),
+                str(row.get("bearer_token_masked") or ""),
+                str(row.get("daily_limit") or ""),
+                str(row.get("total_submit") or ""),
+                "aktif" if row.get("is_active") == 1 else "nonaktif",
+            ]).lower()
+        ]
+
+    filtered_rows.sort(
+        key=lambda row: (
+            get_token_sort_value(row, sort_by),
+            str(row.get("kc_name") or "").lower(),
+            str(row.get("kc_token") or "").lower(),
+        ),
+        reverse=sort_dir == "desc",
+    )
+
+    total_filtered = len(filtered_rows)
+    limit = token_rows_value_to_limit(rows_value)
+    if limit is not None:
+        filtered_rows = filtered_rows[:limit]
+    return filtered_rows, total_filtered
+
+
+def create_kc_token(kc_token, kc_name, kc_area, bearer_token, daily_limit):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
-        INSERT INTO valid_kc_tokens (kc_token, kc_name, bearer_token, daily_limit, is_active)
-        VALUES (%s, %s, %s, %s, 1)
-    """, (kc_token, kc_name, bearer_token, daily_limit))
+        INSERT INTO valid_kc_tokens (kc_token, kc_name, kc_area, bearer_token, daily_limit, is_active)
+        VALUES (%s, %s, %s, %s, %s, 1)
+    """, (kc_token, kc_name, kc_area, bearer_token, daily_limit))
     conn.commit()
     conn.close()
 
 
-def update_kc_token(old_kc_token, new_kc_token, kc_name, bearer_token, daily_limit, is_active=None):
+def update_kc_token(old_kc_token, new_kc_token, kc_name, bearer_token, daily_limit, is_active=None, kc_area=None):
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -1364,15 +1439,15 @@ def update_kc_token(old_kc_token, new_kc_token, kc_name, bearer_token, daily_lim
     if is_active is None:
         cur.execute("""
             UPDATE valid_kc_tokens
-            SET kc_token = %s, kc_name = %s, bearer_token = %s, daily_limit = %s
+            SET kc_token = %s, kc_name = %s, kc_area = COALESCE(%s, kc_area), bearer_token = %s, daily_limit = %s
             WHERE kc_token = %s
-        """, (new_kc_token, kc_name, bearer_token, daily_limit, old_kc_token))
+        """, (new_kc_token, kc_name, kc_area, bearer_token, daily_limit, old_kc_token))
     else:
         cur.execute("""
             UPDATE valid_kc_tokens
-            SET kc_token = %s, kc_name = %s, bearer_token = %s, daily_limit = %s, is_active = %s
+            SET kc_token = %s, kc_name = %s, kc_area = COALESCE(%s, kc_area), bearer_token = %s, daily_limit = %s, is_active = %s
             WHERE kc_token = %s
-        """, (new_kc_token, kc_name, bearer_token, daily_limit, int(is_active), old_kc_token))
+        """, (new_kc_token, kc_name, kc_area, bearer_token, daily_limit, int(is_active), old_kc_token))
 
     conn.commit()
     conn.close()
@@ -1412,7 +1487,7 @@ def get_today_kc_usage_summary():
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT v.kc_token, v.kc_name, v.bearer_token, v.daily_limit, v.is_active,
+        SELECT v.kc_token, v.kc_name, v.kc_area, v.bearer_token, v.daily_limit, v.is_active,
                COALESCE(u.total_submit, 0) AS total_submit
         FROM valid_kc_tokens v
         LEFT JOIN kc_token_usage u
@@ -1429,10 +1504,11 @@ def build_kc_token_export_csv():
     rows, usage_date = get_today_kc_usage_summary()
     output = StringIO()
     writer = csv.writer(output)
-    writer.writerow(["kc_name", "kc_token", "bearer_token", "daily_limit", "is_active", "sudah_terpakai"])
+    writer.writerow(["kc_name", "kc_area", "kc_token", "bearer_token", "daily_limit", "is_active", "sudah_terpakai"])
     for row in rows:
         writer.writerow([
             row["kc_name"],
+            row["kc_area"],
             row["kc_token"],
             row["bearer_token"],
             row["daily_limit"],
@@ -2442,6 +2518,13 @@ def admin_dashboard():
     usage_rows, usage_date = get_today_kc_usage_summary()
     recent_submissions = get_recent_submission_attempts(limit=10)
 
+    selected_token_filter = (request.args.get("token_filter") or "").strip()
+    selected_token_rows = normalize_token_rows_param(request.args.get("token_rows", "10"))
+    selected_token_sort_by, selected_token_sort_dir = normalize_token_sort(
+        request.args.get("token_sort_by", "kc_name"),
+        request.args.get("token_sort_dir", "asc"),
+    )
+
     total_tokens = len(token_rows)
     active_tokens = len([r for r in token_rows if r["is_active"] == 1])
     total_submit_today = sum(r["total_submit"] for r in usage_rows)
@@ -2452,17 +2535,27 @@ def admin_dashboard():
         masked_token_rows.append({
             "kc_token": row["kc_token"],
             "kc_name": row["kc_name"],
+            "kc_area": row["kc_area"] or "-",
             "bearer_token_masked": mask_bearer_token(row["bearer_token"]),
             "daily_limit": row["daily_limit"],
             "total_submit": usage_by_token.get(row["kc_token"], 0),
             "is_active": row["is_active"],
         })
 
+    masked_token_rows, token_filtered_count = filter_sort_limit_token_rows(
+        rows=masked_token_rows,
+        filter_text=selected_token_filter,
+        sort_by=selected_token_sort_by,
+        sort_dir=selected_token_sort_dir,
+        rows_value=selected_token_rows,
+    )
+
     masked_usage_rows = []
     for row in usage_rows:
         masked_usage_rows.append({
             "kc_token": row["kc_token"],
             "kc_name": row["kc_name"],
+            "kc_area": row["kc_area"] or "-",
             "bearer_token_masked": mask_bearer_token(row["bearer_token"]),
             "daily_limit": row["daily_limit"],
             "is_active": row["is_active"],
@@ -2482,6 +2575,12 @@ def admin_dashboard():
         recent_submissions=recent_submissions,
         token_import_message=request.args.get("token_import_message", ""),
         token_import_error=request.args.get("token_import_error", ""),
+        selected_token_filter=selected_token_filter,
+        selected_token_rows=selected_token_rows,
+        selected_token_sort_by=selected_token_sort_by,
+        selected_token_sort_dir=selected_token_sort_dir,
+        token_filtered_count=token_filtered_count,
+        token_visible_count=len(masked_token_rows),
     )
 
 
@@ -2493,6 +2592,7 @@ def admin_add_token():
     if request.method == "POST":
         kc_token = request.form.get("kc_token", "").strip()
         kc_name = request.form.get("kc_name", "").strip()
+        kc_area = request.form.get("kc_area", "").strip()
         bearer_token = request.form.get("bearer_token", "").strip()
         daily_limit = request.form.get("daily_limit", "").strip()
 
@@ -2514,7 +2614,7 @@ def admin_add_token():
             if existing:
                 raise ValueError("KC token sudah ada.")
 
-            create_kc_token(kc_token, kc_name, bearer_token, daily_limit)
+            create_kc_token(kc_token, kc_name, kc_area, bearer_token, daily_limit)
             return redirect(url_for("admin_dashboard"))
 
         except Exception as e:
@@ -2523,6 +2623,7 @@ def admin_add_token():
             token_data = {
                 "kc_token": kc_token,
                 "kc_name": kc_name,
+                "kc_area": kc_area,
                 "bearer_token": bearer_token,
                 "daily_limit": daily_limit if daily_limit else 40,
             }
@@ -2543,6 +2644,7 @@ def admin_edit_token(kc_token):
     if request.method == "POST":
         new_kc_token = request.form.get("kc_token", "").strip()
         kc_name = request.form.get("kc_name", "").strip()
+        kc_area = request.form.get("kc_area", "").strip()
         bearer_token = request.form.get("bearer_token", "").strip()
         daily_limit = request.form.get("daily_limit", "").strip()
 
@@ -2565,7 +2667,7 @@ def admin_edit_token(kc_token):
                 if existing:
                     raise ValueError("KC token baru sudah digunakan.")
 
-            update_kc_token(kc_token, new_kc_token, kc_name, bearer_token, daily_limit)
+            update_kc_token(kc_token, new_kc_token, kc_name, bearer_token, daily_limit, kc_area=kc_area)
             return redirect(url_for("admin_dashboard"))
 
         except Exception as e:
@@ -2574,6 +2676,7 @@ def admin_edit_token(kc_token):
             token_data = {
                 "kc_token": new_kc_token,
                 "kc_name": kc_name,
+                "kc_area": kc_area,
                 "bearer_token": bearer_token,
                 "daily_limit": daily_limit,
                 "is_active": token_data["is_active"],

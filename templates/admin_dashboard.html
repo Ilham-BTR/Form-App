@@ -232,6 +232,22 @@
       margin-bottom: 10px;
     }
 
+    .table-toolbar {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) minmax(150px, 180px) minmax(120px, 150px) minmax(110px, 140px) auto auto;
+      gap: 10px;
+      align-items: end;
+      margin: 14px 0;
+    }
+
+    .toolbar-field label {
+      display: block;
+      margin-bottom: 6px;
+      color: #475569;
+      font-size: 12px;
+      font-weight: bold;
+    }
+
     .input {
       width: 100%;
       border: 1px solid #cbd5e1;
@@ -254,6 +270,10 @@
       }
 
       .import-form {
+        grid-template-columns: 1fr;
+      }
+
+      .table-toolbar {
         grid-template-columns: 1fr;
       }
     }
@@ -303,7 +323,7 @@
       </form>
       <div class="hint">
         Header wajib: <b>kc_name</b>, <b>bearer_token</b>, <b>daily_limit</b>, dan <b>is_active</b>.
-        Header opsional: <b>kc_token</b> dan <b>sudah_terpakai</b>.
+        Header opsional: <b>kc_area</b>, <b>kc_token</b>, dan <b>sudah_terpakai</b>.
         Jika KC token kosong, sistem membuat token otomatis dengan format KC-xxxxxxxxxxxxxxxx.
         Export detail token berisi bearer token asli dan pemakaian hari ini.
       </div>
@@ -347,10 +367,48 @@
       <h2>Daftar KC Token</h2>
       <p class="section-desc">Gunakan bagian ini untuk edit bearer token, ubah limit harian, atau aktif/nonaktifkan
         token yang dipakai oleh form submit utama.</p>
+      <form class="table-toolbar" method="get" action="/admin">
+        <div class="toolbar-field">
+          <label for="token_filter">Filter</label>
+          <input class="input" id="token_filter" type="text" name="token_filter"
+            value="{{ selected_token_filter }}" placeholder="Nama KC, area, token, status">
+        </div>
+        <div class="toolbar-field">
+          <label for="token_sort_by">Sort</label>
+          <select class="input" id="token_sort_by" name="token_sort_by">
+            <option value="kc_name" {% if selected_token_sort_by == 'kc_name' %}selected{% endif %}>Nama KC</option>
+            <option value="kc_area" {% if selected_token_sort_by == 'kc_area' %}selected{% endif %}>Area</option>
+            <option value="kc_token" {% if selected_token_sort_by == 'kc_token' %}selected{% endif %}>KC Token</option>
+            <option value="daily_limit" {% if selected_token_sort_by == 'daily_limit' %}selected{% endif %}>Limit Harian</option>
+            <option value="total_submit" {% if selected_token_sort_by == 'total_submit' %}selected{% endif %}>Terpakai Hari Ini</option>
+            <option value="is_active" {% if selected_token_sort_by == 'is_active' %}selected{% endif %}>Status</option>
+          </select>
+        </div>
+        <div class="toolbar-field">
+          <label for="token_sort_dir">Arah</label>
+          <select class="input" id="token_sort_dir" name="token_sort_dir">
+            <option value="asc" {% if selected_token_sort_dir == 'asc' %}selected{% endif %}>Naik</option>
+            <option value="desc" {% if selected_token_sort_dir == 'desc' %}selected{% endif %}>Turun</option>
+          </select>
+        </div>
+        <div class="toolbar-field">
+          <label for="token_rows">Tampilkan</label>
+          <select class="input" id="token_rows" name="token_rows">
+            <option value="3" {% if selected_token_rows == '3' %}selected{% endif %}>3</option>
+            <option value="10" {% if selected_token_rows == '10' %}selected{% endif %}>10</option>
+            <option value="100" {% if selected_token_rows == '100' %}selected{% endif %}>100</option>
+            <option value="all" {% if selected_token_rows == 'all' %}selected{% endif %}>Semua</option>
+          </select>
+        </div>
+        <button class="btn btn-sm" type="submit">Terapkan</button>
+        <a class="btn btn-sm btn-secondary" href="/admin">Reset</a>
+      </form>
+      <div class="hint">Menampilkan {{ token_visible_count }} dari {{ token_filtered_count }} token hasil filter.</div>
       <table>
         <thead>
           <tr>
             <th>Nama KC</th>
+            <th>Area</th>
             <th>KC Token</th>
             <th>Bearer Token</th>
             <th>Limit Harian</th>
@@ -363,6 +421,7 @@
           {% for row in token_rows %}
           <tr>
             <td>{{ row.kc_name }}</td>
+            <td>{{ row.kc_area }}</td>
             <td><code>{{ row.kc_token }}</code></td>
             <td><code>{{ row.bearer_token_masked }}</code></td>
             <td>{{ row.daily_limit }}</td>
@@ -394,7 +453,7 @@
           {% endfor %}
           {% if not token_rows %}
           <tr>
-            <td colspan="7">Belum ada KC token.</td>
+            <td colspan="8">Belum ada KC token.</td>
           </tr>
           {% endif %}
         </tbody>
@@ -408,6 +467,7 @@
         <thead>
           <tr>
             <th>Nama KC</th>
+            <th>Area</th>
             <th>KC Token</th>
             <th>Bearer Token</th>
             <th>Submit Hari Ini</th>
@@ -420,6 +480,7 @@
           {% for row in usage_rows %}
           <tr>
             <td>{{ row.kc_name }}</td>
+            <td>{{ row.kc_area }}</td>
             <td><code>{{ row.kc_token }}</code></td>
             <td><code>{{ row.bearer_token_masked }}</code></td>
             <td>{{ row.total_submit }}</td>
@@ -438,7 +499,7 @@
           {% endfor %}
           {% if not usage_rows %}
           <tr>
-            <td colspan="7">Belum ada data usage.</td>
+            <td colspan="8">Belum ada data usage.</td>
           </tr>
           {% endif %}
         </tbody>

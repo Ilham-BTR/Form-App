@@ -148,6 +148,17 @@
         </div>
 
         <div class="field">
+          <label>Area</label>
+          <input
+            class="input"
+            type="text"
+            name="kc_area"
+            value="{% if token_data %}{{ token_data.kc_area }}{% endif %}"
+            placeholder="Contoh: Jakarta"
+          >
+        </div>
+
+        <div class="field">
           <label>KC Token</label>
           <div class="token-row">
             <input
