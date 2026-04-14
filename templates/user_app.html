@@ -467,13 +467,13 @@
           <div class="field">
             <label>Transaction Photo</label>
             <input class="file" type="file" name="transaction_photo" accept="image/*" required>
-            <div class="hint">Wajib upload foto transaksi. File di atas 800 KB akan dikompres otomatis sebelum dikirim.</div>
+            <div class="hint">Wajib upload foto transaksi. File dikirim apa adanya.</div>
           </div>
 
           <div class="field">
             <label>Chat Photo</label>
             <input class="file" type="file" name="chat_photo" accept="image/*" required>
-            <div class="hint">Wajib upload screenshot chat. File di atas 800 KB akan dikompres otomatis sebelum dikirim.</div>
+            <div class="hint">Wajib upload screenshot chat. File dikirim apa adanya.</div>
           </div>
         </div>
 
@@ -521,14 +521,7 @@
     let isSubmitting = false;
     let loadingStartedAt = 0;
     let loadingTimerId = null;
-    let allowNativeSubmit = false;
     let loadingPhase = 'idle';
-    const imageCompressionTasks = new Map();
-    const IMAGE_ORIGINAL_LIMIT_BYTES = 800 * 1024;
-    const IMAGE_TARGET_MAX_BYTES = 800 * 1024;
-    const IMAGE_TARGET_MIN_BYTES = 500 * 1024;
-    const IMAGE_MAX_DIMENSIONS = [1600, 1280];
-    const IMAGE_COMPRESSION_TIMEOUT_MS = 15000;
 
     function setTokenStatus(message, type = '') {
       tokenStatus.textContent = message || '';
@@ -608,208 +601,12 @@
       }
     }
 
-    function setFormLocked(isLocked) {
+    function resetFileInputs() {
       if (!surveyForm) return;
 
-      const controls = surveyForm.querySelectorAll('input, select, textarea, button');
-      controls.forEach((control) => {
-        control.disabled = isLocked;
-      });
-    }
-
-    function formatBytes(bytes) {
-      return `${Math.round((bytes || 0) / 1024)} KB`;
-    }
-
-    function getImageFileInputs() {
-      if (!surveyForm) return [];
-      return Array.from(surveyForm.querySelectorAll('input[type="file"][accept*="image"]'));
-    }
-
-    function shouldCompressImage(file) {
-      return file && file.type && file.type.startsWith('image/') && file.size > IMAGE_ORIGINAL_LIMIT_BYTES;
-    }
-
-    function makeCompressedFileName(filename) {
-      const cleanName = String(filename || 'upload').replace(/\.[^.]+$/, '');
-      return `${cleanName || 'upload'}-compressed.jpg`;
-    }
-
-    function loadImageFromFile(file) {
-      return new Promise((resolve, reject) => {
-        const image = new Image();
-        const url = URL.createObjectURL(file);
-
-        image.onload = function () {
-          URL.revokeObjectURL(url);
-          resolve(image);
-        };
-
-        image.onerror = function () {
-          URL.revokeObjectURL(url);
-          reject(new Error('Gagal membaca gambar.'));
-        };
-
-        image.src = url;
-      });
-    }
-
-    function buildImageCanvas(image, maxDimension) {
-      const longestSide = Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height);
-      const scale = longestSide > maxDimension ? maxDimension / longestSide : 1;
-      const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
-      const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d');
-
-      canvas.width = width;
-      canvas.height = height;
-      context.fillStyle = '#ffffff';
-      context.fillRect(0, 0, width, height);
-      context.drawImage(image, 0, 0, width, height);
-      return canvas;
-    }
-
-    function canvasToJpegBlob(canvas, quality) {
-      return new Promise((resolve) => {
-        canvas.toBlob((blob) => resolve(blob), 'image/jpeg', quality);
-      });
-    }
-
-    function withTimeout(promise, timeoutMs, timeoutMessage) {
-      let timeoutId = null;
-      const timeoutPromise = new Promise((_, reject) => {
-        timeoutId = window.setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
-      });
-
-      return Promise.race([promise, timeoutPromise]).finally(() => {
-        if (timeoutId) window.clearTimeout(timeoutId);
-      });
-    }
-
-    async function compressImageFile(file) {
-      if (!shouldCompressImage(file)) return file;
-
-      const image = await loadImageFromFile(file);
-      let bestBlob = null;
-
-      for (const maxDimension of IMAGE_MAX_DIMENSIONS) {
-        const canvas = buildImageCanvas(image, maxDimension);
-
-        for (let quality = 0.95; quality >= 0.45; quality -= 0.07) {
-          const blob = await canvasToJpegBlob(canvas, Number(quality.toFixed(2)));
-          if (!blob) continue;
-
-          if (!bestBlob || blob.size < bestBlob.size) {
-            bestBlob = blob;
-          }
-
-          if (blob.size <= IMAGE_TARGET_MAX_BYTES && blob.size >= IMAGE_TARGET_MIN_BYTES) {
-            bestBlob = blob;
-            return new File(
-              [bestBlob],
-              makeCompressedFileName(file.name),
-              { type: 'image/jpeg', lastModified: Date.now() }
-            );
-          }
-
-          if (blob.size < IMAGE_TARGET_MIN_BYTES) {
-            bestBlob = blob;
-            return new File(
-              [bestBlob],
-              makeCompressedFileName(file.name),
-              { type: 'image/jpeg', lastModified: Date.now() }
-            );
-          }
-        }
-      }
-
-      if (bestBlob && bestBlob.size < file.size) {
-        return new File(
-          [bestBlob],
-          makeCompressedFileName(file.name),
-          { type: 'image/jpeg', lastModified: Date.now() }
-        );
-      }
-
-      return file;
-    }
-
-    function setFileInputFile(input, file) {
-      if (!input || !file || typeof DataTransfer === 'undefined') return false;
-      const dataTransfer = new DataTransfer();
-      dataTransfer.items.add(file);
-      input.files = dataTransfer.files;
-      return true;
-    }
-
-    async function compressImageInput(input) {
-      const file = input && input.files && input.files[0];
-      if (!shouldCompressImage(file)) return file || null;
-
-      setTokenStatus(`Mengompres ${file.name} (${formatBytes(file.size)})...`);
-      let compressedFile = file;
-
-      try {
-        compressedFile = await withTimeout(
-          compressImageFile(file),
-          IMAGE_COMPRESSION_TIMEOUT_MS,
-          'Kompres gambar terlalu lama.'
-        );
-      } catch (error) {
-        setTokenStatus(
-          `${file.name} tidak dikompres karena proses terlalu lama. File asli dikirim.`,
-          'error'
-        );
-        return file;
-      }
-
-      if (compressedFile !== file && setFileInputFile(input, compressedFile)) {
-        input.dataset.compressed = '1';
-        input.dataset.originalSize = String(file.size);
-        input.dataset.compressedSize = String(compressedFile.size);
-        setTokenStatus(
-          `${file.name} dikompres dari ${formatBytes(file.size)} ke ${formatBytes(compressedFile.size)}.`,
-          'ok'
-        );
-        return compressedFile;
-      }
-
-      setTokenStatus(`${file.name} tetap memakai file asli (${formatBytes(file.size)}).`, 'ok');
-      return file;
-    }
-
-    function queueImageCompression(input) {
-      if (!input) return Promise.resolve(null);
-      const existingTask = imageCompressionTasks.get(input);
-      if (existingTask) return existingTask;
-
-      const task = compressImageInput(input)
-        .catch((error) => {
-          setTokenStatus('Gagal kompres gambar: ' + (error.message || 'unknown error'), 'error');
-          throw error;
-        })
-        .finally(() => {
-          imageCompressionTasks.delete(input);
-        });
-
-      imageCompressionTasks.set(input, task);
-      return task;
-    }
-
-    async function compressAllImageInputs() {
-      const tasks = getImageFileInputs().map((input) => queueImageCompression(input));
-      await Promise.all(tasks);
-    }
-
-    function resetFileInputs() {
-      getImageFileInputs().forEach((input) => {
+      surveyForm.querySelectorAll('input[type="file"]').forEach((input) => {
         input.value = '';
-        input.dataset.compressed = '';
-        input.dataset.originalSize = '';
-        input.dataset.compressedSize = '';
       });
-      imageCompressionTasks.clear();
     }
 
     function resetFilePreviews() {
@@ -898,13 +695,6 @@
       setTokenStatus(sourceLabel, 'ok');
     }
 
-    function hasPendingImageCompression() {
-      return getImageFileInputs().some((input) => {
-        const file = input && input.files && input.files[0];
-        return shouldCompressImage(file);
-      }) || imageCompressionTasks.size > 0;
-    }
-
     function formatElapsedTime(totalSeconds) {
       const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
       const seconds = String(totalSeconds % 60).padStart(2, '0');
@@ -924,13 +714,7 @@
       loadingTimer.textContent = formatElapsedTime(elapsedSeconds);
 
       if (loadingStatus) {
-        if (loadingPhase === 'compressing') {
-          if (elapsedSeconds >= 20) {
-            loadingStatus.textContent = 'Masih menyiapkan gambar. Jika kompres terlalu lama, file asli akan dikirim.';
-          } else if (elapsedSeconds >= 8) {
-            loadingStatus.textContent = 'Menyiapkan gambar sebelum dikirim.';
-          }
-        } else if (loadingPhase === 'submitting') {
+        if (loadingPhase === 'submitting') {
           if (elapsedSeconds >= 20) {
             loadingStatus.textContent = 'Masih diproses. Sistem mungkin sedang retry otomatis.';
           } else if (elapsedSeconds >= 8) {
@@ -1022,25 +806,8 @@
       sp12Pack.addEventListener('change', buildProductTransactions);
     }
 
-    getImageFileInputs().forEach((input) => {
-      input.addEventListener('change', function () {
-        input.dataset.compressed = '';
-        input.dataset.originalSize = '';
-        input.dataset.compressedSize = '';
-        queueImageCompression(input).catch(() => {});
-      });
-    });
-
     if (surveyForm) {
-      surveyForm.addEventListener('formdata', function () {
-        if (isSubmitting) {
-          window.setTimeout(function () {
-            setFormLocked(true);
-          }, 0);
-        }
-      });
-
-      surveyForm.addEventListener('submit', async function (e) {
+      surveyForm.addEventListener('submit', function (e) {
         const products = buildProductTransactions();
         if (products.length === 0) {
           e.preventDefault();
@@ -1048,58 +815,21 @@
           return;
         }
 
-        if (allowNativeSubmit) {
-          allowNativeSubmit = false;
-          isSubmitting = true;
-          setSubmitLoading(true);
-          showLoadingOverlay('submitting');
-          return;
-        }
-
         if (isSubmitting) {
           e.preventDefault();
           return;
         }
 
-        e.preventDefault();
         isSubmitting = true;
         setSubmitLoading(true);
-        showLoadingOverlay('compressing');
-        setFormLocked(true);
-
-        try {
-          setLoadingPhase(
-            hasPendingImageCompression() ? 'compressing' : 'submitting',
-            hasPendingImageCompression()
-              ? 'Menyiapkan gambar sebelum dikirim.'
-              : 'Mengirim survey. Jangan tutup halaman ini.'
-          );
-          await compressAllImageInputs();
-          setLoadingPhase('submitting', 'Mengirim survey. Jangan tutup halaman ini.');
-          setFormLocked(false);
-          setSubmitLoading(true);
-          allowNativeSubmit = true;
-
-          if (typeof surveyForm.requestSubmit === 'function') {
-            surveyForm.requestSubmit();
-          } else {
-            surveyForm.submit();
-          }
-        } catch (error) {
-          allowNativeSubmit = false;
-          isSubmitting = false;
-          setFormLocked(false);
-          setSubmitLoading(false);
-          hideLoadingOverlay();
-          alert('Gagal menyiapkan gambar: ' + (error.message || 'unknown error'));
-        }
+        setLoadingPhase('submitting', 'Mengirim survey. Jangan tutup halaman ini.');
+        showLoadingOverlay('submitting');
       });
     }
 
     window.addEventListener('pageshow', function () {
       hideLoadingOverlay();
       isSubmitting = false;
-      setFormLocked(false);
       setSubmitLoading(false);
     });
 
