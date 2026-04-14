@@ -43,6 +43,14 @@ def execute_graphql_request(query, variables, token, auth_mode):
             **build_auth_headers(token, auth_mode),
             "Content-Type": "application/json",
             "Accept": "application/json",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Origin": "https://railway.com",
+            "Referer": "https://railway.com/",
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/146.0.0.0 Safari/537.36"
+            ),
         },
         method="POST",
     )
