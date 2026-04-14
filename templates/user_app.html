@@ -522,11 +522,13 @@
     let loadingStartedAt = 0;
     let loadingTimerId = null;
     let allowNativeSubmit = false;
+    let loadingPhase = 'idle';
     const imageCompressionTasks = new Map();
     const IMAGE_ORIGINAL_LIMIT_BYTES = 800 * 1024;
     const IMAGE_TARGET_MAX_BYTES = 800 * 1024;
     const IMAGE_TARGET_MIN_BYTES = 500 * 1024;
     const IMAGE_MAX_DIMENSIONS = [1600, 1280];
+    const IMAGE_COMPRESSION_TIMEOUT_MS = 15000;
 
     function setTokenStatus(message, type = '') {
       tokenStatus.textContent = message || '';
@@ -674,6 +676,17 @@
       });
     }
 
+    function withTimeout(promise, timeoutMs, timeoutMessage) {
+      let timeoutId = null;
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = window.setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+      });
+
+      return Promise.race([promise, timeoutPromise]).finally(() => {
+        if (timeoutId) window.clearTimeout(timeoutId);
+      });
+    }
+
     async function compressImageFile(file) {
       if (!shouldCompressImage(file)) return file;
 
@@ -735,7 +748,21 @@
       if (!shouldCompressImage(file)) return file || null;
 
       setTokenStatus(`Mengompres ${file.name} (${formatBytes(file.size)})...`);
-      const compressedFile = await compressImageFile(file);
+      let compressedFile = file;
+
+      try {
+        compressedFile = await withTimeout(
+          compressImageFile(file),
+          IMAGE_COMPRESSION_TIMEOUT_MS,
+          'Kompres gambar terlalu lama.'
+        );
+      } catch (error) {
+        setTokenStatus(
+          `${file.name} tidak dikompres karena proses terlalu lama. File asli dikirim.`,
+          'error'
+        );
+        return file;
+      }
 
       if (compressedFile !== file && setFileInputFile(input, compressedFile)) {
         input.dataset.compressed = '1';
@@ -884,22 +911,38 @@
       return `${minutes}:${seconds}`;
     }
 
+    function setLoadingPhase(phase, message) {
+      loadingPhase = phase || 'idle';
+      if (loadingStatus && message) {
+        loadingStatus.textContent = message;
+      }
+    }
+
     function updateLoadingTimer() {
       if (!loadingTimer || !loadingStartedAt) return;
       const elapsedSeconds = Math.floor((Date.now() - loadingStartedAt) / 1000);
       loadingTimer.textContent = formatElapsedTime(elapsedSeconds);
 
       if (loadingStatus) {
-        if (elapsedSeconds >= 20) {
-          loadingStatus.textContent = 'Masih diproses. Sistem mungkin sedang retry otomatis.';
-        } else if (elapsedSeconds >= 8) {
-          loadingStatus.textContent = 'Menunggu response server. Jangan tutup halaman ini.';
+        if (loadingPhase === 'compressing') {
+          if (elapsedSeconds >= 20) {
+            loadingStatus.textContent = 'Masih menyiapkan gambar. Jika kompres terlalu lama, file asli akan dikirim.';
+          } else if (elapsedSeconds >= 8) {
+            loadingStatus.textContent = 'Menyiapkan gambar sebelum dikirim.';
+          }
+        } else if (loadingPhase === 'submitting') {
+          if (elapsedSeconds >= 20) {
+            loadingStatus.textContent = 'Masih diproses. Sistem mungkin sedang retry otomatis.';
+          } else if (elapsedSeconds >= 8) {
+            loadingStatus.textContent = 'Menunggu response server. Jangan tutup halaman ini.';
+          }
         }
       }
     }
 
-    function showLoadingOverlay() {
+    function showLoadingOverlay(phase = 'submitting') {
       if (!loadingOverlay) return;
+      loadingPhase = phase;
       loadingStartedAt = Date.now();
       if (loadingTimer) loadingTimer.textContent = '00:00';
       if (loadingStatus) loadingStatus.textContent = 'Mohon tunggu, proses submit sedang berjalan.';
@@ -917,6 +960,7 @@
         loadingTimerId = null;
       }
       loadingStartedAt = 0;
+      loadingPhase = 'idle';
       document.body.classList.remove('loading-active');
       if (loadingOverlay) {
         loadingOverlay.classList.add('hidden');
@@ -1008,7 +1052,7 @@
           allowNativeSubmit = false;
           isSubmitting = true;
           setSubmitLoading(true);
-          showLoadingOverlay();
+          showLoadingOverlay('submitting');
           return;
         }
 
@@ -1020,17 +1064,18 @@
         e.preventDefault();
         isSubmitting = true;
         setSubmitLoading(true);
-        showLoadingOverlay();
+        showLoadingOverlay('compressing');
         setFormLocked(true);
 
         try {
-          if (loadingStatus) {
-            loadingStatus.textContent = hasPendingImageCompression()
+          setLoadingPhase(
+            hasPendingImageCompression() ? 'compressing' : 'submitting',
+            hasPendingImageCompression()
               ? 'Menyiapkan gambar sebelum dikirim.'
-              : 'Mengirim survey. Jangan tutup halaman ini.';
-          }
+              : 'Mengirim survey. Jangan tutup halaman ini.'
+          );
           await compressAllImageInputs();
-          if (loadingStatus) loadingStatus.textContent = 'Mengirim survey. Jangan tutup halaman ini.';
+          setLoadingPhase('submitting', 'Mengirim survey. Jangan tutup halaman ini.');
           setFormLocked(false);
           setSubmitLoading(true);
           allowNativeSubmit = true;
