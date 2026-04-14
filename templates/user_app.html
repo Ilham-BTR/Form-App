@@ -132,7 +132,9 @@
       border-radius: 18px;
       padding: 14px;
       font-size: 14px;
+      line-height: 1.5;
       margin-bottom: 14px;
+      white-space: pre-line;
     }
 
     .error {
@@ -437,6 +439,7 @@
             <select class="select" name="kc_area" id="kc_area">
               <option value="">Pilih KC Area</option>
             </select>
+            <input type="hidden" name="kc_area_label" id="kc_area_label" value="">
           </div>
 
           <div class="field">
@@ -503,6 +506,7 @@
     const kcArea = document.getElementById('kc_area');
     const bumoSearch = document.getElementById('bumo_search');
     const kcAreaSearch = document.getElementById('kc_area_search');
+    const kcAreaLabelInput = document.getElementById('kc_area_label');
     const tokenStatus = document.getElementById('tokenStatus');
     const surveyForm = document.getElementById('surveyForm');
     const sp12Pack = document.getElementById('sp12_pack');
@@ -734,6 +738,13 @@
     function refreshKcAreaOptions() {
       const filtered = filterOptions(kcAreaSearch.value, allKcAreaOptions, 'label');
       renderOptions(kcArea, filtered, 'value', 'label', 'Pilih KC Area', kcArea.dataset.selected || '');
+      updateKcAreaLabel();
+    }
+
+    function updateKcAreaLabel() {
+      if (!kcArea || !kcAreaLabelInput) return;
+      const selectedOption = kcArea.options[kcArea.selectedIndex];
+      kcAreaLabelInput.value = selectedOption && selectedOption.value ? selectedOption.textContent : '';
     }
 
     function setSubmitLoading(isLoading) {
@@ -959,12 +970,17 @@
       kcAreaSearch.addEventListener('input', refreshKcAreaOptions);
     }
 
+    if (kcArea) {
+      kcArea.addEventListener('change', updateKcAreaLabel);
+    }
+
     if (sp12Pack) {
       sp12Pack.addEventListener('change', buildProductTransactions);
     }
 
     if (surveyForm) {
       surveyForm.addEventListener('submit', async function (e) {
+        updateKcAreaLabel();
         const products = buildProductTransactions();
         if (products.length === 0) {
           e.preventDefault();

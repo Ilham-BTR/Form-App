@@ -2132,6 +2132,25 @@ def mask_bearer_token(token):
     return token[:6] + "..." + token[-4:]
 
 
+def build_submit_success_message(customer_name, phone_number, venue, final_state, quota_exhausted=False):
+    headline = "Data berhasil di submit, silahkan cek di website camlet!"
+    if final_state == "LIKELY_SUCCESS":
+        headline = "Data kemungkinan sudah tersubmit, silahkan cek di website camlet!"
+
+    lines = [
+        headline,
+        "",
+        f"Nama : {customer_name or '-'}",
+        f"No. tlpn : {phone_number or '-'}",
+        f"Venue : {venue or '-'}",
+    ]
+
+    if quota_exhausted:
+        lines.extend(["", "Kuota harian token ini sudah habis, token otomatis dinonaktifkan."])
+
+    return "\n".join(lines)
+
+
 @app.route("/health")
 def healthcheck():
     return jsonify({"status": "ok"})
@@ -2304,6 +2323,7 @@ def user_app():
             has_purchased = "true"
             submission_location = ""
             kc_area = request.form.get("kc_area", "").strip()
+            kc_area_label = request.form.get("kc_area_label", "").strip() or kc_area
             product_transactions = ""
             non_purchase_reasons = ""
 
@@ -2425,16 +2445,14 @@ def user_app():
                 increment_kc_token_usage(kc_token, quota_date)
                 auto_disabled, _used_after_submit, _daily_limit_after_submit = auto_disable_kc_token_if_limit_reached(kc_token)
                 used_today, remaining_today, quota_date = get_remaining_quota(kc_token, daily_limit)
-                if final_state == "LIKELY_SUCCESS":
-                    success_prefix = (
-                        "Survey kemungkinan besar sudah tercatat di server. "
-                        "Response menunjukkan nomor ini sudah pernah mengisi. "
-                    )
-                else:
-                    success_prefix = "Survey berhasil dikirim. "
-
                 if auto_disabled:
-                    success_message = success_prefix + "Kuota harian token ini sudah habis, jadi token otomatis dinonaktifkan."
+                    success_message = build_submit_success_message(
+                        customer_name=customer_name,
+                        phone_number=phone_number,
+                        venue=kc_area_label,
+                        final_state=final_state,
+                        quota_exhausted=True,
+                    )
                     reset_form = True
                     selected_age_range = "age-31-35"
                     selected_sp12_pack = DEFAULT_SP12_PACK
@@ -2463,10 +2481,12 @@ def user_app():
                         assigned_phone_number or "",
                         "success next phone reserved",
                     )
-                    if assigned_phone_number:
-                        success_message = success_prefix + f"Sisa kuota hari ini: {remaining_today}. Nomor baru: {assigned_phone_number}"
-                    else:
-                        success_message = success_prefix + f"Sisa kuota hari ini: {remaining_today}. Tidak ada nomor baru yang tersedia."
+                    success_message = build_submit_success_message(
+                        customer_name=customer_name,
+                        phone_number=phone_number,
+                        venue=kc_area_label,
+                        final_state=final_state,
+                    )
             else:
                 body_msg = result.get("response_body")
                 is_unauthorized = is_all_attempts_unauthorized(result)
