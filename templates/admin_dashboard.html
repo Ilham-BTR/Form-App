@@ -354,6 +354,7 @@
             <th>KC Token</th>
             <th>Bearer Token</th>
             <th>Limit Harian</th>
+            <th>Terpakai Hari Ini</th>
             <th>Status</th>
             <th>Aksi</th>
           </tr>
@@ -365,6 +366,7 @@
             <td><code>{{ row.kc_token }}</code></td>
             <td><code>{{ row.bearer_token_masked }}</code></td>
             <td>{{ row.daily_limit }}</td>
+            <td>{{ row.total_submit }}</td>
             <td>
               {% if row.is_active == 1 %}
               <span class="badge badge-active">Aktif</span>
@@ -392,7 +394,7 @@
           {% endfor %}
           {% if not token_rows %}
           <tr>
-            <td colspan="6">Belum ada KC token.</td>
+            <td colspan="7">Belum ada KC token.</td>
           </tr>
           {% endif %}
         </tbody>

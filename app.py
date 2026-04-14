@@ -2446,6 +2446,7 @@ def admin_dashboard():
     active_tokens = len([r for r in token_rows if r["is_active"] == 1])
     total_submit_today = sum(r["total_submit"] for r in usage_rows)
 
+    usage_by_token = {row["kc_token"]: row["total_submit"] for row in usage_rows}
     masked_token_rows = []
     for row in token_rows:
         masked_token_rows.append({
@@ -2453,6 +2454,7 @@ def admin_dashboard():
             "kc_name": row["kc_name"],
             "bearer_token_masked": mask_bearer_token(row["bearer_token"]),
             "daily_limit": row["daily_limit"],
+            "total_submit": usage_by_token.get(row["kc_token"], 0),
             "is_active": row["is_active"],
         })
 
