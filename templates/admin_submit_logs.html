@@ -162,6 +162,7 @@
               <td>{{ row.phone_number }}</td>
               <td><code>{{ row.kc_token }}</code></td>
               <td>
+                <div>Stage: {{ row.request_summary.get('stage', '-') }}</div>
                 <div>Nama: {{ row.request_summary.get('customer_name', '-') }}</div>
                 <div>Age: {{ row.request_summary.get('age_range', '-') }}</div>
                 <div>BUMO: {{ row.request_summary.get('current_bumo', '-') }}</div>

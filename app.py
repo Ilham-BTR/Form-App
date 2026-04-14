@@ -420,6 +420,25 @@ def create_submission_attempt(submission_id, phone_number, kc_token, request_sum
     conn.close()
 
 
+def update_submission_request_summary(submission_id, phone_number, kc_token, request_summary):
+    now_str = get_now_db_string()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE submission_attempts
+        SET phone_number = %s,
+            kc_token = %s,
+            request_summary_json = %s,
+            updated_at = %s
+        WHERE submission_id = %s
+        """,
+        (phone_number, kc_token, safe_json_dumps(request_summary, ensure_ascii=False), now_str, submission_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 def update_submission_attempt(submission_id, status_local, final_status_code, final_response_text, attempts):
     now_str = get_now_db_string()
     response_text = safe_json_dumps(final_response_text, ensure_ascii=False) if isinstance(final_response_text, (dict, list)) else str(final_response_text or "")
@@ -2262,7 +2281,22 @@ def user_app():
             session["assigned_phone_number"] = assigned_phone_number
 
     if request.method == "POST":
+        submission_id = secrets.token_hex(16)
+        submission_attempt_created = False
+        tracking_phone_number = (session.get("assigned_phone_number") or "").strip() or "UNKNOWN"
         try:
+            create_submission_attempt(
+                submission_id,
+                tracking_phone_number,
+                kc_token,
+                {
+                    "stage": "REQUEST_RECEIVED",
+                    "kc_name": kc_name,
+                    "message": "Submit sudah diterima backend. Menunggu validasi form dan upload.",
+                },
+            )
+            submission_attempt_created = True
+
             if remaining_today <= 0:
                 raise ValueError(
                     f"Kuota KC token hari ini sudah habis. "
@@ -2311,8 +2345,8 @@ def user_app():
             if not chat_photo or not chat_photo.filename:
                 raise ValueError("Screenshot chat wajib diupload.")
 
-            submission_id = secrets.token_hex(16)
             request_summary = {
+                "stage": "SUBMITTING_TO_API",
                 "customer_name": customer_name,
                 "age_range": age_range,
                 "current_bumo": current_bumo,
@@ -2322,7 +2356,7 @@ def user_app():
                 "has_chat_photo": bool(chat_photo and chat_photo.filename),
                 "product_transactions": product_transactions,
             }
-            create_submission_attempt(submission_id, phone_number, kc_token, request_summary)
+            update_submission_request_summary(submission_id, phone_number, kc_token, request_summary)
 
             result = send_survey_request(
                 secret=secret,
@@ -2476,6 +2510,20 @@ def user_app():
 
         except Exception as e:
             logger.exception("submit route error")
+            if submission_attempt_created:
+                try:
+                    update_submission_attempt(
+                        submission_id,
+                        "FAILED",
+                        None,
+                        {
+                            "error": "submit_route_error",
+                            "message": str(e),
+                        },
+                        [],
+                    )
+                except Exception:
+                    logger.exception("failed to update submission attempt after route error")
             error = str(e)
 
     return render_template(
