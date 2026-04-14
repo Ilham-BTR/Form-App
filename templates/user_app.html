@@ -135,17 +135,6 @@
       margin-bottom: 14px;
     }
 
-    .success-detail {
-      background: #f0fdf4;
-      border: 1px solid #bbf7d0;
-      color: #166534;
-      border-radius: 18px;
-      padding: 14px;
-      font-size: 13px;
-      line-height: 1.7;
-      margin-bottom: 14px;
-    }
-
     .error {
       background: #fee2e2;
       color: #991b1b;
@@ -368,19 +357,6 @@
     <div class="form-wrap">
       {% if success_message %}
       <div class="success">{{ success_message }}</div>
-      {% endif %}
-
-      {% if success_payload %}
-      <div class="success-detail">
-        Nomor: <strong>{{ success_payload.phone_number }}</strong><br>
-        Nama: <strong>{{ success_payload.customer_name }}</strong><br>
-        BUMO: <strong>{{ success_payload.current_bumo }}</strong><br>
-        KC Area: <strong>{{ success_payload.kc_area }}</strong><br>
-        Qty: <strong>{{ success_payload.sp12_pack }}</strong><br>
-        Waktu Submit: <strong>{{ success_payload.submitted_at }}</strong><br>
-        Transaction Photo: <strong>{{ success_payload.transaction_before }}</strong> → <strong>{{ success_payload.transaction_after }}</strong><br>
-        Chat Photo: <strong>{{ success_payload.chat_before }}</strong> → <strong>{{ success_payload.chat_after }}</strong>
-      </div>
       {% endif %}
 
       {% if error %}

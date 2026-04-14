@@ -203,8 +203,57 @@
       line-height: 1.5;
     }
 
+    .alert {
+      border-radius: 16px;
+      padding: 12px 14px;
+      margin-bottom: 14px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .alert-success {
+      background: #dcfce7;
+      border: 1px solid #86efac;
+      color: #166534;
+    }
+
+    .alert-error {
+      background: #fee2e2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+    }
+
+    .import-form {
+      display: grid;
+      grid-template-columns: minmax(240px, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      margin-top: 12px;
+      margin-bottom: 10px;
+    }
+
+    .input {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 14px;
+      padding: 12px;
+      font-size: 14px;
+      background: white;
+      color: #0f172a;
+    }
+
+    .hint {
+      color: #64748b;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
     @media (max-width: 800px) {
       .stats {
+        grid-template-columns: 1fr;
+      }
+
+      .import-form {
         grid-template-columns: 1fr;
       }
     }
@@ -221,6 +270,9 @@
 
       <div class="actions">
         <a class="btn btn-sm" href="/admin/token/add">Tambah KC Token</a>
+        <a class="btn btn-sm btn-secondary" href="#import-token">Import Detail Token</a>
+        <a class="btn btn-sm btn-secondary" href="/admin/token/export"
+          onclick="return confirm('Export berisi bearer token asli. Lanjut download?');">Export Detail Token</a>
         <a class="btn btn-sm" href="/admin/customers">Database Customer</a>
         <a class="btn btn-sm btn-secondary" href="/admin/submissions">Live Tracking</a>
         <a class="btn btn-sm btn-secondary" href="/admin/submissions/export">Export Submissions CSV</a>
@@ -232,6 +284,29 @@
     <div class="helper-box">
       Dashboard ini fokus untuk kebutuhan flow utama Python:
       pengelolaan KC token, bearer token, status aktif/nonaktif, dan monitoring submit harian.
+    </div>
+
+    {% if token_import_message %}
+    <div class="alert alert-success">{{ token_import_message }}</div>
+    {% endif %}
+
+    {% if token_import_error %}
+    <div class="alert alert-error">{{ token_import_error }}</div>
+    {% endif %}
+
+    <div class="section" id="import-token">
+      <h2>Import Detail KC Token</h2>
+      <p class="section-desc">Upload file Excel atau CSV untuk tambah token baru dan update detail token yang sudah ada.</p>
+      <form class="import-form" method="post" action="/admin/token/import" enctype="multipart/form-data">
+        <input class="input" type="file" name="token_file" accept=".xlsx,.csv" required>
+        <button class="btn btn-sm" type="submit">Import Token</button>
+      </form>
+      <div class="hint">
+        Header wajib: <b>kc_name</b>, <b>bearer_token</b>, <b>daily_limit</b>, dan <b>is_active</b>.
+        Header opsional: <b>kc_token</b> dan <b>sudah_terpakai</b>.
+        Jika KC token kosong, sistem membuat token otomatis dengan format KC-xxxxxxxxxxxxxxxx.
+        Export detail token berisi bearer token asli dan pemakaian hari ini.
+      </div>
     </div>
 
     <div class="stats">

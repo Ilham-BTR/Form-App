@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 load_dotenv()
-from flask import Flask, render_template, request, redirect, url_for, jsonify, session
+from flask import Flask, render_template, request, redirect, url_for, jsonify, session, Response
 import hmac
 import hashlib
 import json
@@ -18,7 +18,7 @@ import csv
 import logging
 import random
 import time
-from io import TextIOWrapper
+from io import TextIOWrapper, StringIO
 from functools import wraps
 from werkzeug.utils import secure_filename
 from openpyxl import load_workbook
@@ -29,6 +29,17 @@ def require_env(name: str) -> str:
     if not value:
         raise RuntimeError(f"Environment variable {name} wajib diisi.")
     return value
+
+
+def get_positive_int_env(name: str, default: int) -> int:
+    raw_value = os.environ.get(name, "").strip()
+    if not raw_value:
+        return default
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return default
+    return value if value > 0 else default
 
 
 APP_ENV = os.environ.get("APP_ENV", "development").strip().lower()
@@ -84,6 +95,7 @@ VALID_AGE_RANGES = {value for value, _label in AGE_RANGE_OPTIONS}
 DATABASE_URL = require_env("DATABASE_URL")
 DEFAULT_DAILY_LIMIT = 40
 SUBMIT_MAX_RETRIES = 3
+RESERVED_PHONE_TIMEOUT_MINUTES = get_positive_int_env("RESERVED_PHONE_TIMEOUT_MINUTES", 120)
 
 ADMIN_PAGE_USERNAME = require_env("ADMIN_PAGE_USERNAME")
 ADMIN_PAGE_PASSWORD = require_env("ADMIN_PAGE_PASSWORD")
@@ -510,9 +522,71 @@ def get_reserved_phone_for_kc(kc_token):
     return row["phone_number"] if row else None
 
 
+def get_reserved_phone_timeout_cutoff():
+    return (get_now_wib() - timedelta(minutes=RESERVED_PHONE_TIMEOUT_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def release_stale_reserved_phones(kc_token=None):
+    cutoff_str = get_reserved_phone_timeout_cutoff()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    query = [
+        "UPDATE customer_directory",
+        "SET reserved_by_token = NULL, reserved_at = NULL, updated_at = %s",
+        "WHERE is_used = 0",
+        "AND reserved_by_token IS NOT NULL",
+        "AND reserved_by_token != ''",
+        "AND reserved_at IS NOT NULL",
+        "AND reserved_at != ''",
+        "AND reserved_at < %s",
+    ]
+    params = [get_now_db_string(), cutoff_str]
+    if kc_token:
+        query.append("AND reserved_by_token = %s")
+        params.append(kc_token)
+    cur.execute(" ".join(query), tuple(params))
+    released_count = cur.rowcount
+    conn.commit()
+    conn.close()
+    if released_count:
+        logger.info(
+            "released stale reserved phones count=%s timeout_minutes=%s kc_token=%s",
+            released_count,
+            RESERVED_PHONE_TIMEOUT_MINUTES,
+            kc_token or "-",
+        )
+    return released_count
+
+
+def refresh_reserved_phone(phone_number, kc_token):
+    if not phone_number or not kc_token:
+        return False
+
+    now_str = get_now_db_string()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE customer_directory
+        SET reserved_at = %s, updated_at = %s
+        WHERE phone_number = %s
+          AND reserved_by_token = %s
+          AND is_active = 1
+          AND is_used = 0
+        """,
+        (now_str, now_str, phone_number, kc_token),
+    )
+    refreshed = cur.rowcount == 1
+    conn.commit()
+    conn.close()
+    return refreshed
+
+
 def reserve_phone_for_kc(kc_token):
+    release_stale_reserved_phones()
     existing = get_reserved_phone_for_kc(kc_token)
     if existing:
+        refresh_reserved_phone(existing, kc_token)
         return existing
 
     for _ in range(5):
@@ -747,29 +821,6 @@ def mark_phone_as_invalid(phone_number, kc_token=None):
     conn.close()
 
 
-def get_all_customer_numbers(limit=None, sort_by="reserved_at", sort_dir="desc"):
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    order_clause = build_customer_order_clause(sort_by, sort_dir)
-
-    query = f"""
-        SELECT phone_number, is_active, is_used, reserved_by_token, reserved_at, shuffle_order, created_at, updated_at
-        FROM customer_directory
-        ORDER BY {order_clause}
-    """
-
-    params = []
-    if isinstance(limit, int) and limit > 0:
-        query += "\n        LIMIT %s"
-        params.append(limit)
-
-    cur.execute(query, params)
-    rows = cur.fetchall()
-    conn.close()
-    return rows
-
-
 def normalize_customer_rows_param(raw_value):
     allowed_values = {"3", "10", "100", "1000", "10000", "all"}
     current = str(raw_value or "10").strip().lower()
@@ -964,6 +1015,247 @@ def import_customer_numbers(uploaded_file, is_active=1):
     }
 
 
+def normalize_import_header(value):
+    return " ".join(str(value or "").strip().lower().replace("_", " ").replace("-", " ").split())
+
+
+def generate_kc_token(length=16):
+    chars = string.ascii_uppercase + string.digits
+    return "KC-" + "".join(secrets.choice(chars) for _ in range(length))
+
+
+def generate_unique_kc_token(cur):
+    for _ in range(10):
+        kc_token = generate_kc_token()
+        cur.execute("SELECT 1 FROM valid_kc_tokens WHERE kc_token = %s", (kc_token,))
+        if not cur.fetchone():
+            return kc_token
+    raise RuntimeError("Gagal generate KC token unik. Silakan coba import ulang.")
+
+
+def get_import_cell(row, header_index, field_name):
+    idx = header_index.get(field_name)
+    if idx is None or idx >= len(row):
+        return None
+    return row[idx]
+
+
+def parse_positive_int(value, field_label):
+    if value is None or str(value).strip() == "":
+        raise ValueError(f"{field_label} wajib diisi.")
+
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError(f"{field_label} harus angka bulat.")
+        parsed = int(value)
+    else:
+        current = str(value).strip()
+        if current.endswith(".0"):
+            current = current[:-2]
+        if not current.isdigit():
+            raise ValueError(f"{field_label} harus angka bulat.")
+        parsed = int(current)
+
+    if parsed < 1:
+        raise ValueError(f"{field_label} minimal 1.")
+    return parsed
+
+
+def parse_nonnegative_int(value, field_label):
+    if value is None or str(value).strip() == "":
+        raise ValueError(f"{field_label} wajib diisi.")
+
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError(f"{field_label} harus angka bulat.")
+        parsed = int(value)
+    else:
+        current = str(value).strip()
+        if current.endswith(".0"):
+            current = current[:-2]
+        if not current.isdigit():
+            raise ValueError(f"{field_label} harus angka bulat.")
+        parsed = int(current)
+
+    if parsed < 0:
+        raise ValueError(f"{field_label} minimal 0.")
+    return parsed
+
+
+def parse_optional_positive_int(value, default_value):
+    if value is None or str(value).strip() == "":
+        return default_value
+
+    return parse_positive_int(value, "Daily limit")
+
+
+def parse_optional_active_value(value, default_value):
+    if value is None or str(value).strip() == "":
+        return int(default_value)
+
+    return parse_active_value(value)
+
+
+def parse_active_value(value):
+    if value is None or str(value).strip() == "":
+        raise ValueError("Status aktif wajib diisi.")
+
+    current = str(value).strip().lower()
+    if current in {"1", "true", "yes", "ya", "y", "aktif", "active"}:
+        return 1
+    if current in {"0", "false", "no", "tidak", "n", "nonaktif", "non aktif", "inactive"}:
+        return 0
+    raise ValueError("Status aktif harus berisi 1/0, ya/tidak, atau aktif/nonaktif.")
+
+
+def get_import_rows(uploaded_file):
+    filename = secure_filename(uploaded_file.filename or "")
+    if not filename:
+        raise ValueError("File import wajib dipilih.")
+
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in {".xlsx", ".csv"}:
+        raise ValueError("Format file harus .xlsx atau .csv.")
+
+    if ext == ".csv":
+        uploaded_file.stream.seek(0)
+        wrapper = TextIOWrapper(uploaded_file.stream, encoding="utf-8-sig", newline="")
+        reader = csv.reader(wrapper)
+        rows = list(reader)
+        wrapper.detach()
+    else:
+        uploaded_file.stream.seek(0)
+        workbook = load_workbook(uploaded_file, read_only=True, data_only=True)
+        sheet = workbook.active
+        rows = list(sheet.iter_rows(values_only=True))
+        workbook.close()
+
+    if not rows:
+        raise ValueError("File import kosong.")
+    return rows
+
+
+def import_kc_tokens(uploaded_file):
+    rows = get_import_rows(uploaded_file)
+    first_row = [normalize_import_header(cell) for cell in rows[0]]
+
+    header_aliases = {
+        "kc_token": {"kc token", "token kc", "token"},
+        "kc_name": {"kc name", "nama kc", "nama"},
+        "bearer_token": {"bearer token", "bearer", "token bearer"},
+        "daily_limit": {"daily limit", "limit harian", "limit", "kuota", "kuota harian"},
+        "is_active": {"is active", "aktif", "active", "status"},
+        "used_today": {"used today", "sudah terpakai", "terpakai", "total submit", "total submit hari ini", "submit hari ini", "pemakaian", "usage", "used"},
+    }
+
+    header_index = {}
+    for field_name, aliases in header_aliases.items():
+        for idx, header in enumerate(first_row):
+            if header in aliases:
+                header_index[field_name] = idx
+                break
+
+    required_fields = ["kc_name", "bearer_token", "daily_limit", "is_active"]
+    missing_fields = [field for field in required_fields if field not in header_index]
+    if missing_fields:
+        raise ValueError(
+            "Header wajib: kc_name, bearer_token, daily_limit, is_active. "
+            f"Kolom belum ditemukan: {', '.join(missing_fields)}."
+        )
+
+    inserted = 0
+    updated = 0
+    invalid = 0
+    skipped = 0
+    sample_errors = []
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        for row_number, row in enumerate(rows[1:], start=2):
+            if row is None or all(str(cell or "").strip() == "" for cell in row):
+                skipped += 1
+                continue
+
+            try:
+                kc_token = str(get_import_cell(row, header_index, "kc_token") or "").strip()
+                kc_name = str(get_import_cell(row, header_index, "kc_name") or "").strip()
+                bearer_token = str(get_import_cell(row, header_index, "bearer_token") or "").strip()
+
+                if not kc_name:
+                    raise ValueError("Nama KC kosong.")
+                if not bearer_token:
+                    raise ValueError("Bearer token kosong.")
+
+                if not kc_token:
+                    kc_token = generate_unique_kc_token(cur)
+
+                cur.execute(
+                    """
+                    SELECT bearer_token, daily_limit, is_active
+                    FROM valid_kc_tokens
+                    WHERE kc_token = %s
+                    """,
+                    (kc_token,),
+                )
+                existing = cur.fetchone()
+
+                daily_limit = parse_positive_int(get_import_cell(row, header_index, "daily_limit"), "Daily limit")
+                is_active = parse_active_value(get_import_cell(row, header_index, "is_active"))
+
+                cur.execute(
+                    """
+                    INSERT INTO valid_kc_tokens (kc_token, kc_name, bearer_token, daily_limit, is_active)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (kc_token)
+                    DO UPDATE SET
+                        kc_name = EXCLUDED.kc_name,
+                        bearer_token = EXCLUDED.bearer_token,
+                        daily_limit = EXCLUDED.daily_limit,
+                        is_active = EXCLUDED.is_active
+                    """,
+                    (kc_token, kc_name, bearer_token, daily_limit, int(is_active)),
+                )
+                if "used_today" in header_index:
+                    used_today = parse_nonnegative_int(get_import_cell(row, header_index, "used_today"), "Sudah terpakai")
+                    cur.execute(
+                        """
+                        INSERT INTO kc_token_usage (kc_token, usage_date, total_submit)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (kc_token, usage_date)
+                        DO UPDATE SET total_submit = EXCLUDED.total_submit
+                        """,
+                        (kc_token, get_today_wib(), used_today),
+                    )
+                if existing:
+                    updated += 1
+                else:
+                    inserted += 1
+            except Exception as exc:
+                invalid += 1
+                if len(sample_errors) < 3:
+                    sample_errors.append(f"Baris {row_number}: {exc}")
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    if inserted + updated == 0:
+        detail = f" Contoh error: {' | '.join(sample_errors)}" if sample_errors else ""
+        raise ValueError(f"Tidak ada KC token valid yang berhasil diimport.{detail}")
+
+    return {
+        "inserted": inserted,
+        "updated": updated,
+        "invalid": invalid,
+        "skipped": skipped,
+        "sample_errors": sample_errors,
+    }
+
+
 def reshuffle_ready_customer_numbers():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -1101,6 +1393,14 @@ def toggle_kc_token_status(kc_token):
 def delete_kc_token(kc_token):
     conn = get_db_connection()
     cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE customer_directory
+        SET reserved_by_token = NULL, reserved_at = NULL, updated_at = %s
+        WHERE is_used = 0 AND reserved_by_token = %s
+        """,
+        (get_now_db_string(), kc_token),
+    )
     cur.execute("DELETE FROM kc_token_usage WHERE kc_token = %s", (kc_token,))
     cur.execute("DELETE FROM valid_kc_tokens WHERE kc_token = %s", (kc_token,))
     conn.commit()
@@ -1125,6 +1425,23 @@ def get_today_kc_usage_summary():
     return rows, today
 
 
+def build_kc_token_export_csv():
+    rows, usage_date = get_today_kc_usage_summary()
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["kc_name", "kc_token", "bearer_token", "daily_limit", "is_active", "sudah_terpakai"])
+    for row in rows:
+        writer.writerow([
+            row["kc_name"],
+            row["kc_token"],
+            row["bearer_token"],
+            row["daily_limit"],
+            row["is_active"],
+            row["total_submit"],
+        ])
+    return "\ufeff" + output.getvalue(), usage_date
+
+
 def get_kc_token_usage(kc_token, usage_date):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -1143,23 +1460,11 @@ def increment_kc_token_usage(kc_token, usage_date):
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT total_submit
-        FROM kc_token_usage
-        WHERE kc_token = %s AND usage_date = %s
+        INSERT INTO kc_token_usage (kc_token, usage_date, total_submit)
+        VALUES (%s, %s, 1)
+        ON CONFLICT (kc_token, usage_date)
+        DO UPDATE SET total_submit = kc_token_usage.total_submit + 1
     """, (kc_token, usage_date))
-    row = cur.fetchone()
-
-    if row:
-        cur.execute("""
-            UPDATE kc_token_usage
-            SET total_submit = total_submit + 1
-            WHERE kc_token = %s AND usage_date = %s
-        """, (kc_token, usage_date))
-    else:
-        cur.execute("""
-            INSERT INTO kc_token_usage (kc_token, usage_date, total_submit)
-            VALUES (%s, %s, 1)
-        """, (kc_token, usage_date))
 
     conn.commit()
     conn.close()
@@ -1854,7 +2159,12 @@ def user_app():
     kc_name = kc_detail["kc_name"] or "-"
     used_today, remaining_today, quota_date = get_remaining_quota(kc_token, daily_limit)
 
+    release_stale_reserved_phones(kc_token=kc_token)
     assigned_phone_number = session.get("assigned_phone_number")
+    if assigned_phone_number and not refresh_reserved_phone(assigned_phone_number, kc_token):
+        session.pop("assigned_phone_number", None)
+        assigned_phone_number = ""
+
     if not assigned_phone_number:
         assigned_phone_number = reserve_phone_for_kc(kc_token)
         if assigned_phone_number:
@@ -2168,6 +2478,8 @@ def admin_dashboard():
         total_submit_today=total_submit_today,
         submission_counts=submission_counts,
         recent_submissions=recent_submissions,
+        token_import_message=request.args.get("token_import_message", ""),
+        token_import_error=request.args.get("token_import_error", ""),
     )
 
 
@@ -2266,6 +2578,40 @@ def admin_edit_token(kc_token):
             }
 
     return render_template("admin_token_form.html", error=error, mode="edit", token_data=token_data)
+
+
+@app.route("/admin/token/import", methods=["POST"])
+@admin_required
+def admin_import_tokens():
+    try:
+        token_file = request.files.get("token_file")
+        if not token_file or not token_file.filename:
+            raise ValueError("File import wajib dipilih.")
+
+        result = import_kc_tokens(token_file)
+        message = (
+            f"Import token selesai. Baru: {result['inserted']} | "
+            f"Update: {result['updated']} | Invalid: {result['invalid']} | "
+            f"Kosong dilewati: {result['skipped']}"
+        )
+        if result["sample_errors"]:
+            message += f" | Contoh error: {'; '.join(result['sample_errors'])}"
+        return redirect(url_for("admin_dashboard", token_import_message=message))
+    except Exception as e:
+        logger.exception("admin_import_tokens error")
+        return redirect(url_for("admin_dashboard", token_import_error=str(e)))
+
+
+@app.route("/admin/token/export")
+@admin_required
+def admin_export_tokens():
+    csv_content, usage_date = build_kc_token_export_csv()
+    filename = f"kc-token-detail-{usage_date}.csv"
+    return Response(
+        csv_content,
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.route("/admin/token/<path:kc_token>/toggle", methods=["POST"])

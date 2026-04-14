@@ -15,6 +15,7 @@ Aplikasi Flask untuk form submit survey customer berbasis KC token. Aplikasi ini
 - Overlay loading dengan timer saat submit berjalan.
 - Cache master data BUMO dan KC Area di browser memakai `sessionStorage`.
 - Admin dashboard untuk token, database customer, dan live tracking submit.
+- Import detail KC token dari Excel atau CSV.
 - Import nomor customer dari Excel atau CSV.
 - Logging submit ke `submit.log`.
 
@@ -71,11 +72,13 @@ DEFAULT_BASE_URL=https://domain-api-kamu
 DEFAULT_ENDPOINT=/api/survey-questionnaire-cmkt-v2s/submit
 DEFAULT_BUMO_ENDPOINT=/api/bumos
 DEFAULT_KC_AREA_ENDPOINT=/api/kc-areas
+RESERVED_PHONE_TIMEOUT_MINUTES=120
 ```
 
 Catatan:
 
 - `MASTERDATA_HMAC_SECRET` opsional. Kalau tidak diisi, aplikasi memakai `APP_HMAC_SECRET`.
+- `RESERVED_PHONE_TIMEOUT_MINUTES` opsional. Default `120` menit untuk melepas nomor yang terlalu lama reserved tanpa submit.
 - `DEFAULT_BASE_URL`, `DEFAULT_ENDPOINT`, `DEFAULT_BUMO_ENDPOINT`, dan `DEFAULT_KC_AREA_ENDPOINT` punya default di `app.py`, tetapi sebaiknya tetap diset di environment deploy.
 - Jangan commit file `.env`, token, password, atau database credential ke GitHub.
 
@@ -100,6 +103,20 @@ http://localhost:5000
 - `/admin` - dashboard admin
 - `/admin/customers` - database nomor customer
 - `/admin/submissions` - live tracking submit
+
+## Import Detail KC Token
+
+Dari halaman `/admin`, gunakan menu `Import Detail Token`.
+Gunakan `Export Detail Token` untuk download CSV berisi data token yang bisa diimport ulang.
+
+Format file `.xlsx` atau `.csv`:
+
+- Header wajib: `kc_name`, `bearer_token`, `daily_limit`, `is_active`
+- Header opsional: `kc_token`, `sudah_terpakai`
+- Jika `kc_token` kosong atau tidak ada, aplikasi membuat KC token otomatis dengan format `KC-xxxxxxxxxxxxxxxx`.
+- Jika `kc_token` sudah ada, nama KC, bearer token, limit harian, dan status aktif/nonaktif akan di-update.
+- `sudah_terpakai` mengisi pemakaian token untuk tanggal WIB hari ini jika kolomnya ada di file.
+- File export berisi bearer token asli, jadi simpan file tersebut dengan hati-hati.
 
 ## Database
 
