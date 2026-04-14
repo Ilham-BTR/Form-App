@@ -214,6 +214,8 @@ RAILWAY_SERVICE_ID
 RAILWAY_ENVIRONMENT_ID
 ```
 
+Isi `RAILWAY_TOKEN` dengan Railway Account token atau Workspace token.
+
 Jadwal workflow memakai UTC:
 
 - `0 18 * * *` = stop jam 01:00 WIB
