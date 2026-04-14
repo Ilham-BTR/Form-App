@@ -202,6 +202,25 @@ git checkout -b backup-before-update-2026-04-14
 git push origin backup-before-update-2026-04-14
 ```
 
+## Railway Night Schedule
+
+Repository ini punya GitHub Actions workflow untuk menghentikan Railway service pada jam 01:00 WIB dan menyalakannya lagi jam 07:00 WIB.
+
+Tambahkan secret berikut di GitHub repository settings:
+
+```text
+RAILWAY_TOKEN
+RAILWAY_SERVICE_ID
+RAILWAY_ENVIRONMENT_ID
+```
+
+Jadwal workflow memakai UTC:
+
+- `0 18 * * *` = stop jam 01:00 WIB
+- `0 0 * * *` = start jam 07:00 WIB
+
+Kalau secret belum diisi, workflow akan skip dan tidak mengubah Railway.
+
 ## Catatan Keamanan
 
 - Jangan commit `.env`.

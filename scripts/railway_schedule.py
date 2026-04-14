@@ -1,0 +1,130 @@
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+
+API_URL = os.environ.get("RAILWAY_GRAPHQL_URL", "https://backboard.railway.app/graphql/v2")
+
+
+def require_env(name):
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise RuntimeError(f"Environment variable {name} wajib diisi.")
+    return value
+
+
+def graphql_request(query, variables):
+    token = require_env("RAILWAY_TOKEN")
+    body = json.dumps({"query": query, "variables": variables}).encode("utf-8")
+    request = urllib.request.Request(
+        API_URL,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Railway API HTTP {exc.code}: {detail}") from exc
+
+    if payload.get("errors"):
+        raise RuntimeError(json.dumps(payload["errors"], ensure_ascii=False))
+
+    return payload.get("data") or {}
+
+
+def get_latest_deployment(service_id, environment_id):
+    query = """
+    query getLatestDeployment($serviceId: String!, $environmentId: String!) {
+      serviceInstance(environmentId: $environmentId, serviceId: $serviceId) {
+        latestDeployment {
+          id
+          status
+        }
+      }
+    }
+    """
+    data = graphql_request(
+        query,
+        {
+            "serviceId": service_id,
+            "environmentId": environment_id,
+        },
+    )
+    deployment = (data.get("serviceInstance") or {}).get("latestDeployment")
+    if not deployment or not deployment.get("id"):
+        raise RuntimeError("Latest deployment Railway tidak ditemukan.")
+    return deployment
+
+
+def stop_deployment(deployment_id):
+    mutation = """
+    mutation stopDeployment($id: String!) {
+      deploymentStop(id: $id)
+    }
+    """
+    graphql_request(mutation, {"id": deployment_id})
+
+
+def restart_deployment(deployment_id):
+    mutation = """
+    mutation restartDeployment($id: String!) {
+      deploymentRestart(id: $id)
+    }
+    """
+    graphql_request(mutation, {"id": deployment_id})
+
+
+def redeploy_service(service_id, environment_id):
+    mutation = """
+    mutation redeployService($serviceId: String!, $environmentId: String!) {
+      serviceInstanceRedeploy(serviceId: $serviceId, environmentId: $environmentId)
+    }
+    """
+    graphql_request(
+        mutation,
+        {
+            "serviceId": service_id,
+            "environmentId": environment_id,
+        },
+    )
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(description="Stop atau start Railway deployment terjadwal.")
+    parser.add_argument("--action", choices=["stop", "start"], required=True)
+    args = parser.parse_args(argv)
+
+    service_id = require_env("RAILWAY_SERVICE_ID")
+    environment_id = require_env("RAILWAY_ENVIRONMENT_ID")
+    deployment = get_latest_deployment(service_id, environment_id)
+    deployment_id = deployment["id"]
+    print(f"Latest deployment: {deployment_id} ({deployment.get('status')})")
+
+    if args.action == "stop":
+        stop_deployment(deployment_id)
+        print("Railway deployment stopped.")
+        return 0
+
+    try:
+        restart_deployment(deployment_id)
+        print("Railway deployment restarted.")
+    except RuntimeError as exc:
+        print(f"Restart failed, trying redeploy instead: {exc}", file=sys.stderr)
+        redeploy_service(service_id, environment_id)
+        print("Railway service redeployed.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
