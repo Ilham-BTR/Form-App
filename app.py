@@ -86,7 +86,7 @@ AGE_RANGE_OPTIONS = [
     ("age-26-30", "26 - 30"),
     ("age-31-35", "31 - 35"),
     ("age-36-40", "36 - 40"),
-    ("age-41+", "41+"),
+    ("age-40+", "40+"),
 ]
 VALID_AGE_RANGES = {value for value, _label in AGE_RANGE_OPTIONS}
 
