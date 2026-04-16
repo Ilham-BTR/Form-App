@@ -17,10 +17,10 @@ import tempfile
 import csv
 import logging
 import time
-from io import TextIOWrapper, StringIO
+from io import BytesIO, TextIOWrapper, StringIO
 from functools import wraps
 from werkzeug.utils import secure_filename
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 
 def require_env(name: str) -> str:
@@ -988,6 +988,77 @@ def serialize_customer_row(row):
     }
 
 
+def get_customer_active_status_label(row):
+    return "Aktif" if row["is_active"] == 1 else "Nonaktif"
+
+
+def get_customer_usage_status_label(row):
+    if row["is_used"] == 1:
+        return "Terpakai"
+    if row["reserved_by_token"]:
+        return "Sedang Dipakai"
+    return "Siap"
+
+
+def build_customer_numbers_export_excel(sort_by="reserved_at", sort_dir="desc", limit=None):
+    rows = get_all_customer_numbers(limit=limit, sort_by=sort_by, sort_dir=sort_dir)
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Database Customer"
+    worksheet.freeze_panes = "A2"
+
+    headers = [
+        "Nomor HP",
+        "Status Aktif",
+        "Status Pemakaian",
+        "Reserved KC",
+        "Reserved At",
+        "Created At",
+        "Updated At",
+        "Shuffle Order",
+        "Is Active",
+        "Is Used",
+    ]
+    worksheet.append(headers)
+
+    for row in rows:
+        worksheet.append([
+            row["phone_number"] or "",
+            get_customer_active_status_label(row),
+            get_customer_usage_status_label(row),
+            row["reserved_by_token"] or "",
+            row["reserved_at"] or "",
+            row["created_at"] or "",
+            row["updated_at"] or "",
+            row["shuffle_order"] if row["shuffle_order"] is not None else "",
+            row["is_active"],
+            row["is_used"],
+        ])
+
+    for column, width in {
+        "A": 18,
+        "B": 14,
+        "C": 18,
+        "D": 24,
+        "E": 22,
+        "F": 22,
+        "G": 22,
+        "H": 20,
+        "I": 10,
+        "J": 10,
+    }.items():
+        worksheet.column_dimensions[column].width = width
+
+    worksheet.auto_filter.ref = worksheet.dimensions
+
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    output.seek(0)
+    return output.getvalue()
+
+
 def import_customer_numbers(uploaded_file, is_active=1):
     filename = secure_filename(uploaded_file.filename or "")
     if not filename:
@@ -1369,6 +1440,23 @@ def reset_customer_distribution():
     conn.close()
     session.pop("assigned_phone_number", None)
     return len(rows)
+
+
+def delete_unused_customer_numbers():
+    release_stale_reserved_phones()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        DELETE FROM customer_directory
+        WHERE is_used = 0
+          AND (reserved_by_token IS NULL OR reserved_by_token = '')
+        """
+    )
+    deleted_count = cur.rowcount
+    conn.commit()
+    conn.close()
+    return deleted_count
 
 
 def get_kc_token_detail(kc_token):
@@ -2925,6 +3013,23 @@ def admin_customers_import():
         return jsonify({"ok": False, "error": str(e)}), 400
 
 
+@app.route("/admin/customers/export")
+@admin_required
+def admin_customers_export():
+    sort_by, sort_dir = normalize_customer_sort(
+        request.args.get("sort_by", "reserved_at"),
+        request.args.get("sort_dir", "desc"),
+    )
+
+    excel_content = build_customer_numbers_export_excel(sort_by=sort_by, sort_dir=sort_dir)
+    filename = f"customer_database_{get_now_wib().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return Response(
+        excel_content,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.route("/admin/customers/reshuffle", methods=["POST"])
 @admin_required
 def admin_customers_reshuffle():
@@ -2943,6 +3048,17 @@ def admin_customers_reset_distribution():
         total = reset_customer_distribution()
         stats = get_customer_stats()
         return jsonify({"ok": True, "message": f"Reset distribusi selesai. {total} nomor siap pakai diacak ulang.", "stats": stats})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.route("/admin/customers/delete-unused", methods=["POST"])
+@admin_required
+def admin_customers_delete_unused():
+    try:
+        total = delete_unused_customer_numbers()
+        stats = get_customer_stats()
+        return jsonify({"ok": True, "message": f"Hapus database selesai. {total} nomor belum terpakai berhasil dihapus.", "stats": stats})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
 

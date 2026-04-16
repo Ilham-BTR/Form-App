@@ -453,8 +453,10 @@
       <div class="table-toolbar">
         <h2>Daftar Nomor Tersimpan</h2>
         <div class="toolbar-actions">
+          <a class="btn btn-secondary btn-sm" id="exportExcelButton" href="/admin/customers/export">Export Excel</a>
           <button class="btn btn-warning btn-sm" id="reshuffleButton" type="button">Reshuffle Nomor Ready</button>
           <button class="btn btn-muted btn-sm" id="resetDistributionButton" type="button">Reset Distribusi</button>
+          <button class="btn btn-danger btn-sm" id="deleteUnusedButton" type="button">Hapus Nomor Belum Terpakai</button>
           <div class="rows-form">
             <label for="rowsSelect">Tampilkan</label>
             <select class="rows-select" id="rowsSelect">
@@ -509,8 +511,10 @@
       const saveButton = document.getElementById('saveButton');
       const importButton = document.getElementById('importButton');
       const resetFormButton = document.getElementById('resetFormButton');
+      const exportExcelButton = document.getElementById('exportExcelButton');
       const reshuffleButton = document.getElementById('reshuffleButton');
       const resetDistributionButton = document.getElementById('resetDistributionButton');
+      const deleteUnusedButton = document.getElementById('deleteUnusedButton');
       const importIsActive = document.getElementById('import_is_active');
       const sortButtons = Array.from(document.querySelectorAll('.th-sort-btn'));
 
@@ -569,6 +573,15 @@
         });
       }
 
+      function updateExportLink() {
+        if (!exportExcelButton) return;
+        const params = new URLSearchParams({
+          sort_by: currentSortBy,
+          sort_dir: currentSortDir,
+        });
+        exportExcelButton.href = '/admin/customers/export?' + params.toString();
+      }
+
       function renderTable(rows) {
         if (!rows || rows.length === 0) {
           tableBody.innerHTML = '<tr><td colspan="7">Belum ada nomor customer.</td></tr>';
@@ -615,6 +628,7 @@
       async function loadTable() {
         clearMessage();
         updateSortIndicators();
+        updateExportLink();
         tableBody.innerHTML = '<tr class="loading-row"><td colspan="7">Memuat data...</td></tr>';
         try {
           const params = new URLSearchParams({
@@ -731,6 +745,24 @@
         }
       });
 
+      deleteUnusedButton.addEventListener('click', async function () {
+        if (!confirm('Hapus semua nomor yang belum terpakai? Nomor yang sedang di-reserve tidak ikut dihapus. Lanjutkan?')) return;
+        clearMessage();
+        deleteUnusedButton.disabled = true;
+        const originalText = deleteUnusedButton.textContent;
+        deleteUnusedButton.textContent = 'Memproses...';
+        try {
+          await postForm('/admin/customers/delete-unused', new FormData(), function () {
+            resetForm();
+          });
+        } catch (error) {
+          showMessage(error.message || 'Gagal menghapus nomor belum terpakai.', true);
+        } finally {
+          deleteUnusedButton.disabled = false;
+          deleteUnusedButton.textContent = originalText;
+        }
+      });
+
       tableBody.addEventListener('click', async function (event) {
         const btn = event.target.closest('button[data-action]');
         if (!btn) return;
@@ -776,6 +808,7 @@
       });
 
       updateSortIndicators();
+      updateExportLink();
       loadTable();
     });
   </script>
