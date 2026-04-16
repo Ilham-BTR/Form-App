@@ -13,7 +13,8 @@
       color: #0f172a;
     }
     .wrap {
-      max-width: 560px;
+      width: min(1680px, calc(100vw - 32px));
+      max-width: none;
       margin: 0 auto;
       padding: 24px 16px;
     }
@@ -22,6 +23,8 @@
       border-radius: 24px;
       padding: 22px;
       box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
+      max-width: 980px;
+      margin: 0 auto;
     }
     h1 {
       margin: 0 0 8px;
