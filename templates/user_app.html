@@ -439,6 +439,7 @@
             <select class="select" name="kc_area" id="kc_area" required>
               <option value="">Pilih KC Area</option>
             </select>
+            <div class="hint">Ketik minimal 2 huruf untuk menampilkan KC Area.</div>
             <input type="hidden" name="kc_area_label" id="kc_area_label" value="">
           </div>
 
@@ -519,6 +520,8 @@
     const shouldResetFormAfterSubmit = {{ reset_form|tojson }};
     const masterDataCacheKey = {{ ('kc_master_data::' ~ kc_token)|tojson }};
     const masterDataCacheTtlMs = 6 * 60 * 60 * 1000;
+    const kcAreaMinSearchChars = 2;
+    const kcAreaMaxRenderedOptions = 60;
     const imageCompressTargetBytes = 500 * 1024;
     const imageCompressTimeoutMs = 7000;
     const imageCompressMaxSides = [1600, 1280, 1024];
@@ -736,15 +739,37 @@
     }
 
     function refreshKcAreaOptions() {
-      const filtered = filterOptions(kcAreaSearch.value, allKcAreaOptions, 'label');
-      renderOptions(kcArea, filtered, 'value', 'label', 'Pilih KC Area', kcArea.dataset.selected || '');
+      const keyword = (kcAreaSearch.value || '').trim();
+      const selectedValue = kcArea.dataset.selected || kcArea.value || '';
+
+      if (keyword.length < kcAreaMinSearchChars && !selectedValue) {
+        renderOptions(kcArea, [], 'value', 'label', 'Ketik minimal 2 huruf', '');
+        updateKcAreaLabel();
+        return;
+      }
+
+      let filtered = keyword
+        ? filterOptions(keyword, allKcAreaOptions, 'label')
+        : allKcAreaOptions.filter(item => String(item.value) === String(selectedValue));
+
+      filtered = filtered.slice(0, kcAreaMaxRenderedOptions);
+
+      if (selectedValue && !filtered.some(item => String(item.value) === String(selectedValue))) {
+        const selectedItem = allKcAreaOptions.find(item => String(item.value) === String(selectedValue));
+        if (selectedItem) filtered.unshift(selectedItem);
+      }
+
+      const firstLabel = filtered.length ? 'Pilih KC Area' : 'KC Area tidak ditemukan';
+      renderOptions(kcArea, filtered, 'value', 'label', firstLabel, selectedValue);
       updateKcAreaLabel();
     }
 
     function updateKcAreaLabel() {
       if (!kcArea || !kcAreaLabelInput) return;
       const selectedOption = kcArea.options[kcArea.selectedIndex];
-      kcAreaLabelInput.value = selectedOption && selectedOption.value ? selectedOption.textContent : '';
+      const selectedValue = selectedOption && selectedOption.value ? selectedOption.value : '';
+      kcArea.dataset.selected = selectedValue;
+      kcAreaLabelInput.value = selectedValue ? selectedOption.textContent : '';
     }
 
     function setSubmitLoading(isLoading) {
