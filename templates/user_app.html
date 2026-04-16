@@ -400,19 +400,19 @@
             <label>Nomor HP</label>
             <input class="input" name="phone_number"
               value="{{ assigned_phone_number or ('' if reset_form else request.form.get('phone_number', '')) }}"
-              placeholder="Contoh: 08123456789" readonly>
+              placeholder="Contoh: 08123456789" required readonly>
             <div class="hint">Nomor diambil otomatis dari database customer.</div>
           </div>
 
           <div class="field">
             <label>Nama Customer</label>
             <input class="input" name="customer_name" value="{{ '' if reset_form else request.form.get('customer_name', '') }}"
-              placeholder="Masukkan nama customer">
+              placeholder="Masukkan nama customer" minlength="2" required>
           </div>
 
           <div class="field">
             <label>Age Range</label>
-            <select class="select" name="age_range" id="age_range">
+            <select class="select" name="age_range" id="age_range" required>
               <option value="">Pilih umur</option>
               {% for age_value, age_label in age_range_options %}
               <option value="{{ age_value }}" {% if selected_age_range==age_value %}selected{% endif %}>{{ age_label }}</option>
@@ -428,7 +428,7 @@
           <div class="field">
             <label>Cari BUMO</label>
             <input class="input search-input" type="text" id="bumo_search" placeholder="Cari BUMO...">
-            <select class="select" name="current_bumo" id="current_bumo">
+            <select class="select" name="current_bumo" id="current_bumo" required>
               <option value="">Pilih BUMO</option>
             </select>
           </div>
@@ -436,7 +436,7 @@
           <div class="field">
             <label>Cari KC Area</label>
             <input class="input search-input" type="text" id="kc_area_search" placeholder="Cari KC Area...">
-            <select class="select" name="kc_area" id="kc_area">
+            <select class="select" name="kc_area" id="kc_area" required>
               <option value="">Pilih KC Area</option>
             </select>
             <input type="hidden" name="kc_area_label" id="kc_area_label" value="">
@@ -444,7 +444,7 @@
 
           <div class="field">
             <label>CMKT SP12</label>
-            <select class="select" name="sp12_pack" id="sp12_pack">
+            <select class="select" name="sp12_pack" id="sp12_pack" required>
               {% for pack_option in product_pack_options %}
               <option value="{{ pack_option }}" {% if selected_sp12_pack==pack_option %}selected{% endif %}>{{ pack_option }}</option>
               {% endfor %}
