@@ -94,6 +94,8 @@ VALID_AGE_RANGES = {value for value, _label in AGE_RANGE_OPTIONS}
 DATABASE_URL = require_env("DATABASE_URL")
 DEFAULT_DAILY_LIMIT = 40
 RESERVED_PHONE_TIMEOUT_MINUTES = get_positive_int_env("RESERVED_PHONE_TIMEOUT_MINUTES", 120)
+SUBMISSION_LOG_LIMIT_OPTIONS = ["25", "50", "100", "200", "500", "1000", "10000", "all"]
+MAX_SUBMISSION_LOG_LIMIT = 10000
 
 ADMIN_PAGE_USERNAME = require_env("ADMIN_PAGE_USERNAME")
 ADMIN_PAGE_PASSWORD = require_env("ADMIN_PAGE_PASSWORD")
@@ -102,6 +104,29 @@ ADMIN_PAGE_PASSWORD = require_env("ADMIN_PAGE_PASSWORD")
 def get_db_connection():
     conn = connect(DATABASE_URL, row_factory=dict_row, autocommit=False)
     return conn
+
+
+def normalize_submission_log_limit(value, default=100):
+    if value is None:
+        return None
+    current = str(value).strip().lower()
+    if current in {"all", "semua"}:
+        return None
+    try:
+        limit = int(current or default)
+    except (TypeError, ValueError):
+        limit = default
+    return max(1, min(limit, MAX_SUBMISSION_LOG_LIMIT))
+
+
+def normalize_submission_date_filter(value):
+    current = str(value or "").strip()
+    if not current:
+        return ""
+    try:
+        return datetime.strptime(current, "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        return ""
 
 
 def init_db():
@@ -425,27 +450,38 @@ def update_submission_attempt(submission_id, status_local, final_status_code, fi
     conn.close()
 
 
-def get_recent_submission_attempts(limit=100, status_filter="", kc_token_filter="", phone_filter=""):
-    limit = max(1, min(int(limit or 100), 500))
+def get_recent_submission_attempts(limit=100, status_filter="", kc_token_filter="", phone_filter="", date_from="", date_to=""):
+    limit = normalize_submission_log_limit(limit, default=100)
+    date_from = normalize_submission_date_filter(date_from)
+    date_to = normalize_submission_date_filter(date_to)
     query = [
-        "SELECT submission_id, phone_number, kc_token, status_local, final_status_code, final_response_text, attempts_json, request_summary_json, created_at, updated_at",
-        "FROM submission_attempts",
+        "SELECT s.submission_id, s.phone_number, s.kc_token, COALESCE(v.kc_name, '') AS kc_name, s.status_local, s.final_status_code, s.final_response_text, s.attempts_json, s.request_summary_json, s.created_at, s.updated_at",
+        "FROM submission_attempts s",
+        "LEFT JOIN valid_kc_tokens v ON s.kc_token = v.kc_token",
         "WHERE 1=1",
     ]
     params = []
 
     if status_filter:
-        query.append("AND status_local = %s")
+        query.append("AND s.status_local = %s")
         params.append(status_filter)
     if kc_token_filter:
-        query.append("AND kc_token LIKE %s")
+        query.append("AND s.kc_token LIKE %s")
         params.append(f"%{kc_token_filter}%")
     if phone_filter:
-        query.append("AND phone_number LIKE %s")
+        query.append("AND s.phone_number LIKE %s")
         params.append(f"%{phone_filter}%")
+    if date_from:
+        query.append("AND s.created_at >= %s")
+        params.append(f"{date_from} 00:00:00")
+    if date_to:
+        query.append("AND s.created_at <= %s")
+        params.append(f"{date_to} 23:59:59")
 
-    query.append("ORDER BY created_at DESC LIMIT %s")
-    params.append(limit)
+    query.append("ORDER BY s.created_at DESC")
+    if limit is not None:
+        query.append("LIMIT %s")
+        params.append(limit)
 
     conn = get_db_connection()
     cur = conn.cursor()
@@ -467,6 +503,7 @@ def get_recent_submission_attempts(limit=100, status_filter="", kc_token_filter=
             "submission_id": row["submission_id"],
             "phone_number": row["phone_number"],
             "kc_token": row["kc_token"],
+            "kc_name": row["kc_name"] or request_summary.get("kc_name") or "-",
             "status_local": row["status_local"],
             "final_status_code": row["final_status_code"],
             "final_response_text": row["final_response_text"],
@@ -494,12 +531,14 @@ def get_submission_status_counts():
     return counts
 
 
-def build_submission_attempts_export_csv(limit=500, status_filter="", kc_token_filter="", phone_filter=""):
+def build_submission_attempts_export_csv(limit=10000, status_filter="", kc_token_filter="", phone_filter="", date_from="", date_to=""):
     rows = get_recent_submission_attempts(
         limit=limit,
         status_filter=status_filter,
         kc_token_filter=kc_token_filter,
         phone_filter=phone_filter,
+        date_from=date_from,
+        date_to=date_to,
     )
     output = StringIO()
     writer = csv.writer(output)
@@ -512,6 +551,7 @@ def build_submission_attempts_export_csv(limit=500, status_filter="", kc_token_f
         "attempt_summary",
         "phone_number",
         "kc_token",
+        "kc_name",
         "stage",
         "customer_name",
         "age_range",
@@ -537,6 +577,7 @@ def build_submission_attempts_export_csv(limit=500, status_filter="", kc_token_f
             row.get("attempt_summary") or "",
             row.get("phone_number") or "",
             row.get("kc_token") or "",
+            row.get("kc_name") or "",
             request_summary.get("stage") or "",
             request_summary.get("customer_name") or "",
             request_summary.get("age_range") or "",
@@ -1751,6 +1792,20 @@ def get_remaining_quota(kc_token, daily_limit):
     return used, remaining, today
 
 
+def is_daily_quota_exhausted(used_today, daily_limit):
+    try:
+        limit = int(daily_limit or DEFAULT_DAILY_LIMIT)
+    except (TypeError, ValueError):
+        limit = DEFAULT_DAILY_LIMIT
+    if limit < 1:
+        limit = DEFAULT_DAILY_LIMIT
+    try:
+        used = int(used_today or 0)
+    except (TypeError, ValueError):
+        used = 0
+    return used >= limit
+
+
 def auto_disable_kc_token_if_limit_reached(kc_token):
     kc_detail = get_kc_token_detail(kc_token)
     if not kc_detail:
@@ -1762,7 +1817,7 @@ def auto_disable_kc_token_if_limit_reached(kc_token):
 
     used_today = get_kc_token_usage(kc_token, get_today_wib())
 
-    if used_today >= daily_limit and kc_detail["is_active"] == 1:
+    if is_daily_quota_exhausted(used_today, daily_limit) and kc_detail["is_active"] == 1:
         update_kc_token(
             old_kc_token=kc_token,
             new_kc_token=kc_detail["kc_token"],
@@ -2323,7 +2378,7 @@ def home():
                 error = "KC token tidak valid atau sudah nonaktif."
             else:
                 auto_disabled, used_today, daily_limit = auto_disable_kc_token_if_limit_reached(kc_token)
-                if auto_disabled or used_today >= daily_limit:
+                if auto_disabled or is_daily_quota_exhausted(used_today, daily_limit):
                     error = (
                         f"Kuota KC token hari ini sudah habis ({used_today}/{daily_limit}). "
                         "Token otomatis dinonaktifkan. Hubungi admin atau gunakan token lain."
@@ -2362,7 +2417,7 @@ def api_master_data():
             return jsonify({"error": "KC token tidak valid atau sudah nonaktif."}), 401
 
         auto_disabled, used_today, daily_limit = auto_disable_kc_token_if_limit_reached(kc_token)
-        if auto_disabled or used_today >= daily_limit:
+        if auto_disabled or is_daily_quota_exhausted(used_today, daily_limit):
             clear_user_session()
             return jsonify({"error": "Kuota KC token hari ini sudah habis dan token otomatis dinonaktifkan."}), 401
 
@@ -2416,7 +2471,7 @@ def user_app():
         return redirect(url_for("home"))
 
     auto_disabled, used_today, daily_limit = auto_disable_kc_token_if_limit_reached(kc_token)
-    if auto_disabled or used_today >= daily_limit:
+    if auto_disabled or is_daily_quota_exhausted(used_today, daily_limit):
         clear_user_session()
         return redirect(url_for("home"))
 
@@ -2503,6 +2558,7 @@ def user_app():
 
             request_summary = {
                 "stage": "SUBMITTING_TO_API",
+                "kc_name": kc_name,
                 "customer_name": customer_name,
                 "age_range": age_range,
                 "current_bumo": current_bumo,
@@ -3161,17 +3217,19 @@ def admin_submissions():
     selected_status = (request.args.get("status") or "").strip()
     selected_kc_token = (request.args.get("kc_token") or "").strip()
     selected_phone = (request.args.get("phone_number") or "").strip()
-    selected_limit = request.args.get("limit", "100").strip()
-    try:
-        limit = int(selected_limit)
-    except ValueError:
-        limit = 100
+    selected_date_from = normalize_submission_date_filter(request.args.get("date_from"))
+    selected_date_to = normalize_submission_date_filter(request.args.get("date_to"))
+    selected_limit_raw = (request.args.get("limit") or "100").strip()
+    requested_limit = normalize_submission_log_limit(selected_limit_raw, default=100)
+    display_limit = 50 if requested_limit is None else min(requested_limit, 50)
 
     rows = get_recent_submission_attempts(
-        limit=limit,
+        limit=display_limit,
         status_filter=selected_status,
         kc_token_filter=selected_kc_token,
         phone_filter=selected_phone,
+        date_from=selected_date_from,
+        date_to=selected_date_to,
     )
     counts = get_submission_status_counts()
 
@@ -3231,7 +3289,10 @@ def admin_submissions():
         selected_status=selected_status,
         selected_kc_token=selected_kc_token,
         selected_phone=selected_phone,
-        selected_limit=str(limit),
+        selected_date_from=selected_date_from,
+        selected_date_to=selected_date_to,
+        selected_limit="all" if requested_limit is None else str(requested_limit),
+        limit_options=SUBMISSION_LOG_LIMIT_OPTIONS,
     )
 
 
@@ -3241,17 +3302,17 @@ def admin_submissions_export():
     selected_status = (request.args.get("status") or "").strip()
     selected_kc_token = (request.args.get("kc_token") or "").strip()
     selected_phone = (request.args.get("phone_number") or "").strip()
-    selected_limit = request.args.get("limit", "500").strip()
-    try:
-        limit = int(selected_limit)
-    except ValueError:
-        limit = 500
+    selected_date_from = normalize_submission_date_filter(request.args.get("date_from"))
+    selected_date_to = normalize_submission_date_filter(request.args.get("date_to"))
+    limit = normalize_submission_log_limit(request.args.get("limit", "10000"), default=10000)
 
     csv_content = build_submission_attempts_export_csv(
         limit=limit,
         status_filter=selected_status,
         kc_token_filter=selected_kc_token,
         phone_filter=selected_phone,
+        date_from=selected_date_from,
+        date_to=selected_date_to,
     )
     filename = f"submission_attempts_{get_now_wib().strftime('%Y%m%d_%H%M%S')}.csv"
     return Response(

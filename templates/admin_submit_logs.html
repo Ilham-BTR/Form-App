@@ -19,10 +19,10 @@
     .card h3 { margin: 0 0 8px; font-size: 14px; color: #64748b; font-weight: normal; }
     .card .big { font-size: 28px; font-weight: bold; }
     .helper-box { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a; border-radius: 16px; padding: 14px 16px; margin-bottom: 18px; font-size: 14px; line-height: 1.5; }
-    .filters { display: grid; grid-template-columns: 1.2fr 1fr 1fr 160px 160px; gap: 10px; align-items: end; }
+    .filters { display: grid; grid-template-columns: 1.1fr 1fr 150px 150px 1fr 140px 170px; gap: 10px; align-items: end; }
     label { display: block; margin-bottom: 7px; font-size: 13px; font-weight: bold; }
     .input, .select { width: 100%; border: none; outline: none; background: #f1f5f9; border-radius: 14px; padding: 12px 14px; font-size: 14px; }
-    table { width: 100%; border-collapse: collapse; min-width: 1240px; }
+    table { width: 100%; border-collapse: collapse; min-width: 1460px; }
     th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid #e2e8f0; font-size: 14px; vertical-align: top; }
     th { color: #475569; font-size: 13px; }
     .badge { display: inline-block; padding: 6px 10px; border-radius: 999px; font-size: 12px; font-weight: bold; white-space: nowrap; }
@@ -37,6 +37,8 @@
     .badge-retried-likely { background: #fef3c7; color: #92400e; }
     .badge-neutral { background: #e2e8f0; color: #334155; }
     code { word-break: break-word; font-size: 12px; }
+    .response-cell { width: 360px; max-width: 360px; }
+    .response-code { display: block; max-width: 360px; max-height: 170px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
     .muted { color: #64748b; }
     @media (max-width: 980px) { .stats { grid-template-columns: 1fr 1fr; } .filters { grid-template-columns: 1fr; } }
     @media (max-width: 640px) { .stats { grid-template-columns: 1fr; } }
@@ -86,6 +88,14 @@
           <input class="input" type="text" name="phone_number" value="{{ selected_phone }}" placeholder="Filter nomor HP">
         </div>
         <div>
+          <label>Dari Tanggal</label>
+          <input class="input" type="date" name="date_from" value="{{ selected_date_from }}">
+        </div>
+        <div>
+          <label>Sampai Tanggal</label>
+          <input class="input" type="date" name="date_to" value="{{ selected_date_to }}">
+        </div>
+        <div>
           <label>Status</label>
           <select class="select" name="status">
             <option value="" {% if not selected_status %}selected{% endif %}>Semua</option>
@@ -99,8 +109,8 @@
         <div>
           <label>Limit</label>
           <select class="select" name="limit">
-            {% for n in ['25', '50', '100', '200', '500'] %}
-            <option value="{{ n }}" {% if selected_limit == n %}selected{% endif %}>{{ n }}</option>
+            {% for n in limit_options %}
+            <option value="{{ n }}" {% if selected_limit == n %}selected{% endif %}>{% if n == 'all' %}Semua untuk Export{% elif n|int > 50 %}{{ n }} untuk Export{% else %}{{ n }}{% endif %}</option>
             {% endfor %}
           </select>
         </div>
@@ -125,9 +135,10 @@
               <th>Attempts</th>
               <th>Retry</th>
               <th>Nomor HP</th>
+              <th>Nama KC</th>
               <th>KC Token</th>
               <th>Ringkasan Request</th>
-              <th>Response</th>
+              <th class="response-cell">Response</th>
             </tr>
           </thead>
           <tbody>
@@ -161,6 +172,7 @@
                 {% endif %}
               </td>
               <td>{{ row.phone_number }}</td>
+              <td>{{ row.kc_name }}</td>
               <td><code>{{ row.kc_token }}</code></td>
               <td>
                 <div>Stage: {{ row.request_summary.get('stage', '-') }}</div>
@@ -170,10 +182,10 @@
                 <div>KC Area: {{ row.request_summary.get('kc_area', '-') }}</div>
                 <div>Beli: {{ row.request_summary.get('has_purchased', '-') }}</div>
               </td>
-              <td><code>{{ row.final_response_text or '-' }}</code></td>
+              <td class="response-cell"><code class="response-code">{{ row.final_response_text or '-' }}</code></td>
             </tr>
             {% else %}
-            <tr><td colspan="9" class="muted">Belum ada data submit.</td></tr>
+            <tr><td colspan="10" class="muted">Belum ada data submit.</td></tr>
             {% endfor %}
           </tbody>
         </table>
