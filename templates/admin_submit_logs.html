@@ -181,6 +181,12 @@
                 <div>BUMO: {{ row.request_summary.get('current_bumo', '-') }}</div>
                 <div>KC Area: {{ row.request_summary.get('kc_area', '-') }}</div>
                 <div>Beli: {{ row.request_summary.get('has_purchased', '-') }}</div>
+                {% if row.request_summary.get('non_purchase_reasons') %}
+                <div>Alasan: {{ row.request_summary.get('non_purchase_reasons', '-') }}</div>
+                {% endif %}
+                {% if row.request_summary.get('lighter') %}
+                <div>Lighter: {{ row.request_summary.get('lighter', '-') }}</div>
+                {% endif %}
               </td>
               <td class="response-cell"><code class="response-code">{{ row.final_response_text or '-' }}</code></td>
             </tr>

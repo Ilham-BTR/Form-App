@@ -80,6 +80,14 @@ DEFAULT_KC_AREA_ENDPOINT = os.environ.get(
 
 PRODUCT_PACK_OPTIONS = ["0 pack", "1 pack", "2 pack"]
 DEFAULT_SP12_PACK = "1 pack"
+NON_PURCHASE_REASON_OPTIONS = [
+    "Harga terlalu mahal",
+    "Tidak tertarik dengan persepsi rasa produknya",
+    "Tidak tertarik dengan kesan mereknya",
+    "Pernah mencoba, tapi tidak suka rasa produknya",
+    "Pernah mencoba, tapi terlalu dingin/kurang memuaskan",
+]
+VALID_NON_PURCHASE_REASONS = set(NON_PURCHASE_REASON_OPTIONS)
 
 AGE_RANGE_OPTIONS = [
     ("age-21-25", "21 - 25"),
@@ -127,6 +135,13 @@ def normalize_submission_date_filter(value):
         return datetime.strptime(current, "%Y-%m-%d").strftime("%Y-%m-%d")
     except ValueError:
         return ""
+
+
+def normalize_has_purchased_value(value):
+    current = str(value or "").strip().lower()
+    if current not in {"true", "false"}:
+        raise ValueError("Jawaban pembelian tidak valid.")
+    return current
 
 
 def init_db():
@@ -558,6 +573,8 @@ def build_submission_attempts_export_csv(limit=10000, status_filter="", kc_token
         "current_bumo",
         "kc_area",
         "has_purchased",
+        "non_purchase_reasons",
+        "lighter",
         "has_transaction_photo",
         "has_chat_photo",
         "product_transactions",
@@ -584,6 +601,8 @@ def build_submission_attempts_export_csv(limit=10000, status_filter="", kc_token
             request_summary.get("current_bumo") or "",
             request_summary.get("kc_area") or "",
             request_summary.get("has_purchased") or "",
+            request_summary.get("non_purchase_reasons") or "",
+            request_summary.get("lighter") or "",
             request_summary.get("has_transaction_photo") or "",
             request_summary.get("has_chat_photo") or "",
             request_summary.get("product_transactions") or "",
@@ -2027,9 +2046,9 @@ def get_curl_style_field_order(body_obj):
         "campaign_type",
         "has_purchased",
         "submission_location",
+        "non_purchase_reasons",
         "kc_area",
         "product_transactions",
-        "non_purchase_reasons",
     ]
     for key in preferred:
         if key in body_obj:
@@ -2177,8 +2196,10 @@ def send_survey_request(
         "has_purchased": has_purchased,
         "submission_location": submission_location,
         "kc_area": kc_area,
-        "product_transactions": product_transactions,
     }
+
+    if product_transactions:
+        body_obj["product_transactions"] = product_transactions
 
     if has_purchased == "false" and non_purchase_reasons:
         body_obj["non_purchase_reasons"] = non_purchase_reasons
@@ -2199,10 +2220,12 @@ def send_survey_request(
     try:
         def build_hash_payload():
             hash_payload = {}
-            for key in file_obj.keys():
-                hash_payload[key] = ""
-            for key, value in body_obj.items():
-                hash_payload[key] = value
+            for key in get_multipart_file_order(file_obj):
+                if key in file_obj:
+                    hash_payload[key] = ""
+            for key in get_curl_style_field_order(body_obj):
+                if key in body_obj:
+                    hash_payload[key] = body_obj[key]
             return hash_payload
 
         def build_request_once(attempt_no):
@@ -2461,6 +2484,10 @@ def user_app():
     reset_form = False
     result = None
     selected_age_range = request.form.get("age_range", "age-31-35")
+    selected_has_purchased = (request.form.get("has_purchased") or "true").strip().lower()
+    if selected_has_purchased not in {"true", "false"}:
+        selected_has_purchased = "true"
+    selected_non_purchase_reason = (request.form.get("non_purchase_reasons") or "").strip()
     selected_sp12_pack = request.form.get("sp12_pack", request.form.get("cmkt12_pack", DEFAULT_SP12_PACK))
 
     kc_token = (session.get("kc_token") or "").strip()
@@ -2526,12 +2553,13 @@ def user_app():
             age_range = request.form.get("age_range", "").strip()
             current_bumo = request.form.get("current_bumo", "").strip()
             campaign_type = "kc"
-            has_purchased = "true"
+            has_purchased = normalize_has_purchased_value(request.form.get("has_purchased"))
             submission_location = ""
             kc_area = request.form.get("kc_area", "").strip()
             kc_area_label = request.form.get("kc_area_label", "").strip() or kc_area
             product_transactions = ""
             non_purchase_reasons = ""
+            lighter = ""
 
             transaction_photo = request.files.get("transaction_photo")
             chat_photo = request.files.get("chat_photo")
@@ -2548,11 +2576,21 @@ def user_app():
                 raise ValueError("BUMO wajib dipilih.")
             if not kc_area:
                 raise ValueError("KC Area wajib dipilih.")
+            if has_purchased == "true":
+                lighter = request.form.get("lighter", "").strip()
 
-            product_transactions, selected_sp12_pack = normalize_product_transactions_from_form(request.form)
+                product_transactions, selected_sp12_pack = normalize_product_transactions_from_form(request.form)
 
-            if not transaction_photo or not transaction_photo.filename:
-                raise ValueError("Foto transaksi wajib diupload.")
+                if not transaction_photo or not transaction_photo.filename:
+                    raise ValueError("Foto transaksi wajib diupload.")
+            else:
+                selected_sp12_pack = DEFAULT_SP12_PACK
+                transaction_photo = None
+                non_purchase_reasons = (request.form.get("non_purchase_reasons") or "").strip()
+                selected_non_purchase_reason = non_purchase_reasons
+                if non_purchase_reasons not in VALID_NON_PURCHASE_REASONS:
+                    raise ValueError("Alasan tidak membeli wajib dipilih.")
+
             if not chat_photo or not chat_photo.filename:
                 raise ValueError("Screenshot chat wajib diupload.")
 
@@ -2564,9 +2602,11 @@ def user_app():
                 "current_bumo": current_bumo,
                 "kc_area": kc_area,
                 "has_purchased": has_purchased,
+                "non_purchase_reasons": non_purchase_reasons,
                 "has_transaction_photo": bool(transaction_photo and transaction_photo.filename),
                 "has_chat_photo": bool(chat_photo and chat_photo.filename),
                 "product_transactions": product_transactions,
+                "lighter": lighter,
             }
             update_submission_request_summary(submission_id, phone_number, kc_token, request_summary)
 
@@ -2652,16 +2692,19 @@ def user_app():
                 increment_kc_token_usage(kc_token, quota_date)
                 auto_disabled, _used_after_submit, _daily_limit_after_submit = auto_disable_kc_token_if_limit_reached(kc_token)
                 used_today, remaining_today, quota_date = get_remaining_quota(kc_token, daily_limit)
+                success_venue = kc_area_label or current_bumo
                 if auto_disabled:
                     success_message = build_submit_success_message(
                         customer_name=customer_name,
                         phone_number=phone_number,
-                        venue=kc_area_label,
+                        venue=success_venue,
                         final_state=final_state,
                         quota_exhausted=True,
                     )
                     reset_form = True
                     selected_age_range = "age-31-35"
+                    selected_has_purchased = "true"
+                    selected_non_purchase_reason = ""
                     selected_sp12_pack = DEFAULT_SP12_PACK
                     assigned_phone_number = ""
                     logger.info(
@@ -2678,6 +2721,8 @@ def user_app():
                     assigned_phone_number = reserve_next_phone_for_session(kc_token, previous_phone_number=phone_number)
                     reset_form = True
                     selected_age_range = "age-31-35"
+                    selected_has_purchased = "true"
+                    selected_non_purchase_reason = ""
                     selected_sp12_pack = DEFAULT_SP12_PACK
                     logger.info(
                         "submit phone action submission_id=%s final_state=%s phone_changed=%s old_phone=%s new_phone=%s reason=%s",
@@ -2691,7 +2736,7 @@ def user_app():
                     success_message = build_submit_success_message(
                         customer_name=customer_name,
                         phone_number=phone_number,
-                        venue=kc_area_label,
+                        venue=success_venue,
                         final_state=final_state,
                     )
             else:
@@ -2756,7 +2801,10 @@ def user_app():
         kc_name=kc_name,
         age_range_options=AGE_RANGE_OPTIONS,
         product_pack_options=PRODUCT_PACK_OPTIONS,
+        non_purchase_reason_options=NON_PURCHASE_REASON_OPTIONS,
         selected_age_range=selected_age_range,
+        selected_has_purchased=selected_has_purchased,
+        selected_non_purchase_reason=selected_non_purchase_reason,
         selected_sp12_pack=selected_sp12_pack,
         assigned_phone_number=assigned_phone_number or "",
         reset_form=reset_form,

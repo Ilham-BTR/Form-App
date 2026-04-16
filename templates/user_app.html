@@ -126,6 +126,10 @@
       line-height: 1.4;
     }
 
+    .hidden-field {
+      display: none;
+    }
+
     .success {
       background: #dcfce7;
       color: #166534;
@@ -418,7 +422,6 @@
               <option value="{{ age_value }}" {% if selected_age_range==age_value %}selected{% endif %}>{{ age_label }}</option>
               {% endfor %}
             </select>
-            <input type="hidden" name="has_purchased" value="true">
           </div>
         </div>
 
@@ -433,7 +436,7 @@
             </select>
           </div>
 
-          <div class="field">
+          <div class="field" id="kc_area_field">
             <label>Cari KC Area</label>
             <input class="input search-input" type="text" id="kc_area_search" placeholder="Cari KC Area...">
             <select class="select" name="kc_area" id="kc_area" required>
@@ -444,6 +447,24 @@
           </div>
 
           <div class="field">
+            <label>Apakah Konsumen Membeli</label>
+            <select class="select" name="has_purchased" id="has_purchased" required>
+              <option value="true" {% if selected_has_purchased == 'true' %}selected{% endif %}>Ya</option>
+              <option value="false" {% if selected_has_purchased == 'false' %}selected{% endif %}>Tidak</option>
+            </select>
+          </div>
+
+          <div class="field hidden-field" id="non_purchase_reason_field">
+            <label>Alasan Tidak Membeli</label>
+            <select class="select" name="non_purchase_reasons" id="non_purchase_reasons">
+              <option value="">Pilih alasan tidak membeli</option>
+              {% for reason_option in non_purchase_reason_options %}
+              <option value="{{ reason_option }}" {% if selected_non_purchase_reason == reason_option %}selected{% endif %}>{{ reason_option }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="field" id="sp12_field">
             <label>CMKT SP12</label>
             <select class="select" name="sp12_pack" id="sp12_pack" required>
               {% for pack_option in product_pack_options %}
@@ -453,12 +474,12 @@
             <div class="hint">Pilih jumlah pack CMKT SP12. Minimal 1 pack.</div>
           </div>
           
-          <div class="field">
+          <div class="field" id="lighter_field">
             <label>Lighter</label>
-            <select class="select" id="lighter">
+            <select class="select" name="lighter" id="lighter">
               <option value="">Pilih Lighter</option>
-              <option value="Ya">Ya</option>
-              <option value="Tidak">Tidak</option>
+              <option value="Ya" {% if ('' if reset_form else request.form.get('lighter', '')) == 'Ya' %}selected{% endif %}>Ya</option>
+              <option value="Tidak" {% if ('' if reset_form else request.form.get('lighter', '')) == 'Tidak' %}selected{% endif %}>Tidak</option>
             </select>
           </div>
 
@@ -468,15 +489,15 @@
         <div class="card">
           <h2>Upload Bukti</h2>
 
-          <div class="field">
+          <div class="field" id="transaction_photo_field">
             <label>Transaction Photo</label>
-            <input class="file" type="file" name="transaction_photo" accept="image/*" required>
+            <input class="file" type="file" name="transaction_photo" id="transaction_photo" accept="image/*" required>
             <div class="hint">Wajib upload foto transaksi. File di atas 500 KB dikompres di browser sebelum dikirim.</div>
           </div>
 
           <div class="field">
             <label>Chat Photo</label>
-            <input class="file" type="file" name="chat_photo" accept="image/*" required>
+            <input class="file" type="file" name="chat_photo" id="chat_photo" accept="image/*" required>
             <div class="hint">Wajib upload screenshot chat. File di atas 500 KB dikompres di browser sebelum dikirim.</div>
           </div>
         </div>
@@ -508,6 +529,16 @@
     const bumoSearch = document.getElementById('bumo_search');
     const kcAreaSearch = document.getElementById('kc_area_search');
     const kcAreaLabelInput = document.getElementById('kc_area_label');
+    const hasPurchased = document.getElementById('has_purchased');
+    const nonPurchaseReasonField = document.getElementById('non_purchase_reason_field');
+    const nonPurchaseReasons = document.getElementById('non_purchase_reasons');
+    const kcAreaField = document.getElementById('kc_area_field');
+    const sp12Field = document.getElementById('sp12_field');
+    const lighterField = document.getElementById('lighter_field');
+    const lighter = document.getElementById('lighter');
+    const transactionPhotoField = document.getElementById('transaction_photo_field');
+    const transactionPhotoInput = document.getElementById('transaction_photo');
+    const chatPhotoInput = document.getElementById('chat_photo');
     const tokenStatus = document.getElementById('tokenStatus');
     const surveyForm = document.getElementById('surveyForm');
     const sp12Pack = document.getElementById('sp12_pack');
@@ -550,6 +581,14 @@
     }
 
     function buildProductTransactions() {
+      const isPurchased = !hasPurchased || hasPurchased.value !== 'false';
+      if (!isPurchased) {
+        if (productTransactionsInput) {
+          productTransactionsInput.value = '';
+        }
+        return [];
+      }
+
       const items = [];
       const sp12Qty = packLabelToQuantity(sp12Pack ? sp12Pack.value : '0 pack');
 
@@ -562,6 +601,33 @@
       }
 
       return items;
+    }
+
+    function setFieldVisibility(field, isVisible) {
+      if (!field) return;
+      field.classList.toggle('hidden-field', !isVisible);
+    }
+
+    function updatePurchaseFields() {
+      const isPurchased = !hasPurchased || hasPurchased.value !== 'false';
+
+      setFieldVisibility(nonPurchaseReasonField, !isPurchased);
+      setFieldVisibility(sp12Field, isPurchased);
+      setFieldVisibility(lighterField, isPurchased);
+      setFieldVisibility(transactionPhotoField, isPurchased);
+
+      if (kcArea) kcArea.required = true;
+      if (sp12Pack) sp12Pack.required = isPurchased;
+      if (nonPurchaseReasons) nonPurchaseReasons.required = !isPurchased;
+      if (transactionPhotoInput) transactionPhotoInput.required = isPurchased;
+      if (chatPhotoInput) chatPhotoInput.required = true;
+
+      if (!isPurchased) {
+        if (productTransactionsInput) productTransactionsInput.value = '';
+        if (transactionPhotoInput) transactionPhotoInput.value = '';
+      } else {
+        buildProductTransactions();
+      }
     }
 
     function shouldCompressImageFile(file) {
@@ -813,6 +879,7 @@
       resetFileInputs();
       resetFilePreviews();
       buildProductTransactions();
+      updatePurchaseFields();
 
       if (allBumoOptions.length) refreshBumoOptions();
       if (allKcAreaOptions.length) refreshKcAreaOptions();
@@ -1003,14 +1070,23 @@
       sp12Pack.addEventListener('change', buildProductTransactions);
     }
 
+    if (hasPurchased) {
+      hasPurchased.addEventListener('change', updatePurchaseFields);
+    }
+
     if (surveyForm) {
       surveyForm.addEventListener('submit', async function (e) {
-        updateKcAreaLabel();
-        const products = buildProductTransactions();
-        if (products.length === 0) {
-          e.preventDefault();
-          alert('Minimal CMKT SP12 harus 1 pack.');
-          return;
+        const isPurchased = !hasPurchased || hasPurchased.value !== 'false';
+        if (isPurchased) {
+          updateKcAreaLabel();
+          const products = buildProductTransactions();
+          if (products.length === 0) {
+            e.preventDefault();
+            alert('Minimal CMKT SP12 harus 1 pack.');
+            return;
+          }
+        } else if (productTransactionsInput) {
+          productTransactionsInput.value = '';
         }
 
         if (isSubmitting) {
@@ -1045,6 +1121,7 @@
 
     window.addEventListener('DOMContentLoaded', function () {
       buildProductTransactions();
+      updatePurchaseFields();
       if (shouldResetFormAfterSubmit) resetSurveyFormView();
       loadMasterData();
       const nameInput = document.querySelector('input[name="customer_name"]');
