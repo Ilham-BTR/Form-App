@@ -159,6 +159,32 @@
         </div>
 
         <div class="field">
+          <label>Username</label>
+          <input
+            class="input"
+            type="text"
+            name="kc_username"
+            value="{% if token_data %}{{ token_data.kc_username }}{% endif %}"
+            placeholder="Opsional"
+            autocomplete="off"
+          >
+          <div class="hint">Disimpan bersama detail KC token untuk referensi admin.</div>
+        </div>
+
+        <div class="field">
+          <label>Password</label>
+          <input
+            class="input"
+            type="text"
+            name="kc_password"
+            value="{% if token_data %}{{ token_data.kc_password }}{% endif %}"
+            placeholder="Opsional"
+            autocomplete="off"
+          >
+          <div class="hint">Kosongkan bila KC token ini tidak memakai password terpisah. Nilai ditampilkan apa adanya di dashboard.</div>
+        </div>
+
+        <div class="field">
           <label>KC Token</label>
           <div class="token-row">
             <input

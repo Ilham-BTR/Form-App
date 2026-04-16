@@ -323,9 +323,9 @@
       </form>
       <div class="hint">
         Header wajib: <b>kc_name</b>, <b>bearer_token</b>, <b>daily_limit</b>, dan <b>is_active</b>.
-        Header opsional: <b>token_area</b>, <b>kc_token</b>, dan <b>sudah_terpakai</b>.
+        Header opsional: <b>token_area</b>, <b>kc_token</b>, <b>kc_username</b>, <b>kc_password</b>, dan <b>sudah_terpakai</b>.
         Jika KC token kosong, sistem membuat token otomatis dengan format KC-xxxxxxxxxxxxxxxx.
-        Export detail token berisi bearer token asli dan pemakaian hari ini.
+        Export detail token berisi bearer token, username, password, dan pemakaian hari ini.
       </div>
     </div>
 
@@ -371,7 +371,7 @@
         <div class="toolbar-field">
           <label for="token_filter">Filter</label>
           <input class="input" id="token_filter" type="text" name="token_filter"
-            value="{{ selected_token_filter }}" placeholder="Nama KC, area, token, status">
+            value="{{ selected_token_filter }}" placeholder="Nama KC, area, token, username, status">
         </div>
         <div class="toolbar-field">
           <label for="token_sort_by">Sort</label>
@@ -379,6 +379,7 @@
             <option value="kc_name" {% if selected_token_sort_by == 'kc_name' %}selected{% endif %}>Nama KC</option>
             <option value="token_area" {% if selected_token_sort_by == 'token_area' %}selected{% endif %}>Area</option>
             <option value="kc_token" {% if selected_token_sort_by == 'kc_token' %}selected{% endif %}>KC Token</option>
+            <option value="kc_username" {% if selected_token_sort_by == 'kc_username' %}selected{% endif %}>Username</option>
             <option value="daily_limit" {% if selected_token_sort_by == 'daily_limit' %}selected{% endif %}>Limit Harian</option>
             <option value="total_submit" {% if selected_token_sort_by == 'total_submit' %}selected{% endif %}>Terpakai Hari Ini</option>
             <option value="is_active" {% if selected_token_sort_by == 'is_active' %}selected{% endif %}>Status</option>
@@ -410,6 +411,8 @@
             <th>Nama KC</th>
             <th>Area</th>
             <th>KC Token</th>
+            <th>Username</th>
+            <th>Password</th>
             <th>Bearer Token</th>
             <th>Limit Harian</th>
             <th>Terpakai Hari Ini</th>
@@ -423,6 +426,8 @@
             <td>{{ row.kc_name }}</td>
             <td>{{ row.token_area }}</td>
             <td><code>{{ row.kc_token }}</code></td>
+            <td>{{ row.kc_username }}</td>
+            <td><code>{{ row.kc_password }}</code></td>
             <td><code>{{ row.bearer_token_masked }}</code></td>
             <td>{{ row.daily_limit }}</td>
             <td>{{ row.total_submit }}</td>
@@ -453,7 +458,7 @@
           {% endfor %}
           {% if not token_rows %}
           <tr>
-            <td colspan="8">Belum ada KC token.</td>
+            <td colspan="10">Belum ada KC token.</td>
           </tr>
           {% endif %}
         </tbody>
@@ -469,6 +474,8 @@
             <th>Nama KC</th>
             <th>Area</th>
             <th>KC Token</th>
+            <th>Username</th>
+            <th>Password</th>
             <th>Bearer Token</th>
             <th>Submit Hari Ini</th>
             <th>Limit</th>
@@ -482,6 +489,8 @@
             <td>{{ row.kc_name }}</td>
             <td>{{ row.token_area }}</td>
             <td><code>{{ row.kc_token }}</code></td>
+            <td>{{ row.kc_username }}</td>
+            <td><code>{{ row.kc_password }}</code></td>
             <td><code>{{ row.bearer_token_masked }}</code></td>
             <td>{{ row.total_submit }}</td>
             <td>{{ row.daily_limit }}</td>
@@ -499,7 +508,7 @@
           {% endfor %}
           {% if not usage_rows %}
           <tr>
-            <td colspan="8">Belum ada data usage.</td>
+            <td colspan="10">Belum ada data usage.</td>
           </tr>
           {% endif %}
         </tbody>
