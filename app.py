@@ -574,7 +574,6 @@ def build_submission_attempts_export_csv(limit=10000, status_filter="", kc_token
         "kc_area",
         "has_purchased",
         "non_purchase_reasons",
-        "lighter",
         "has_transaction_photo",
         "has_chat_photo",
         "product_transactions",
@@ -602,7 +601,6 @@ def build_submission_attempts_export_csv(limit=10000, status_filter="", kc_token
             request_summary.get("kc_area") or "",
             request_summary.get("has_purchased") or "",
             request_summary.get("non_purchase_reasons") or "",
-            request_summary.get("lighter") or "",
             request_summary.get("has_transaction_photo") or "",
             request_summary.get("has_chat_photo") or "",
             request_summary.get("product_transactions") or "",
@@ -2559,7 +2557,6 @@ def user_app():
             kc_area_label = request.form.get("kc_area_label", "").strip() or kc_area
             product_transactions = ""
             non_purchase_reasons = ""
-            lighter = ""
 
             transaction_photo = request.files.get("transaction_photo")
             chat_photo = request.files.get("chat_photo")
@@ -2577,8 +2574,6 @@ def user_app():
             if not kc_area:
                 raise ValueError("KC Area wajib dipilih.")
             if has_purchased == "true":
-                lighter = request.form.get("lighter", "").strip()
-
                 product_transactions, selected_sp12_pack = normalize_product_transactions_from_form(request.form)
 
                 if not transaction_photo or not transaction_photo.filename:
@@ -2606,7 +2601,6 @@ def user_app():
                 "has_transaction_photo": bool(transaction_photo and transaction_photo.filename),
                 "has_chat_photo": bool(chat_photo and chat_photo.filename),
                 "product_transactions": product_transactions,
-                "lighter": lighter,
             }
             update_submission_request_summary(submission_id, phone_number, kc_token, request_summary)
 
