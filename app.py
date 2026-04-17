@@ -2484,9 +2484,9 @@ def user_app():
     reset_form = False
     result = None
     selected_age_range = request.form.get("age_range", "age-31-35")
-    selected_has_purchased = (request.form.get("has_purchased") or "true").strip().lower()
+    selected_has_purchased = (request.form.get("has_purchased") or "").strip().lower()
     if selected_has_purchased not in {"true", "false"}:
-        selected_has_purchased = "true"
+        selected_has_purchased = ""
     selected_non_purchase_reason = (request.form.get("non_purchase_reasons") or "").strip()
     selected_sp12_pack = request.form.get("sp12_pack", request.form.get("cmkt12_pack", DEFAULT_SP12_PACK))
 
@@ -2703,7 +2703,7 @@ def user_app():
                     )
                     reset_form = True
                     selected_age_range = "age-31-35"
-                    selected_has_purchased = "true"
+                    selected_has_purchased = ""
                     selected_non_purchase_reason = ""
                     selected_sp12_pack = DEFAULT_SP12_PACK
                     assigned_phone_number = ""
@@ -2721,7 +2721,7 @@ def user_app():
                     assigned_phone_number = reserve_next_phone_for_session(kc_token, previous_phone_number=phone_number)
                     reset_form = True
                     selected_age_range = "age-31-35"
-                    selected_has_purchased = "true"
+                    selected_has_purchased = ""
                     selected_non_purchase_reason = ""
                     selected_sp12_pack = DEFAULT_SP12_PACK
                     logger.info(

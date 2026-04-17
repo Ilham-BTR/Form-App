@@ -449,12 +449,13 @@
           <div class="field">
             <label>Apakah Konsumen Membeli</label>
             <select class="select" name="has_purchased" id="has_purchased" required>
+              <option value="" {% if not selected_has_purchased %}selected{% endif %}>Pilih jawaban</option>
               <option value="true" {% if selected_has_purchased == 'true' %}selected{% endif %}>Ya</option>
               <option value="false" {% if selected_has_purchased == 'false' %}selected{% endif %}>Tidak</option>
             </select>
           </div>
 
-          <div class="field hidden-field" id="non_purchase_reason_field">
+          <div class="field {% if selected_has_purchased != 'false' %}hidden-field{% endif %}" id="non_purchase_reason_field">
             <label>Alasan Tidak Membeli</label>
             <select class="select" name="non_purchase_reasons" id="non_purchase_reasons">
               <option value="">Pilih alasan tidak membeli</option>
@@ -464,7 +465,7 @@
             </select>
           </div>
 
-          <div class="field" id="sp12_field">
+          <div class="field {% if selected_has_purchased != 'true' %}hidden-field{% endif %}" id="sp12_field">
             <label>CMKT SP12</label>
             <select class="select" name="sp12_pack" id="sp12_pack" required>
               {% for pack_option in product_pack_options %}
@@ -474,7 +475,7 @@
             <div class="hint">Pilih jumlah pack CMKT SP12. Minimal 1 pack.</div>
           </div>
           
-          <div class="field" id="lighter_field">
+          <div class="field {% if selected_has_purchased != 'true' %}hidden-field{% endif %}" id="lighter_field">
             <label>Lighter</label>
             <select class="select" name="lighter" id="lighter">
               <option value="">Pilih Lighter</option>
@@ -486,16 +487,16 @@
           <input type="hidden" name="product_transactions" id="product_transactions" value="">
         </div>
 
-        <div class="card">
+        <div class="card {% if selected_has_purchased not in ['true', 'false'] %}hidden-field{% endif %}" id="upload_proof_card">
           <h2>Upload Bukti</h2>
 
-          <div class="field" id="transaction_photo_field">
+          <div class="field {% if selected_has_purchased != 'true' %}hidden-field{% endif %}" id="transaction_photo_field">
             <label>Transaction Photo</label>
             <input class="file" type="file" name="transaction_photo" id="transaction_photo" accept="image/*" required>
             <div class="hint">Wajib upload foto transaksi. File di atas 500 KB dikompres di browser sebelum dikirim.</div>
           </div>
 
-          <div class="field">
+          <div class="field {% if selected_has_purchased not in ['true', 'false'] %}hidden-field{% endif %}" id="chat_photo_field">
             <label>Chat Photo</label>
             <input class="file" type="file" name="chat_photo" id="chat_photo" accept="image/*" required>
             <div class="hint">Wajib upload screenshot chat. File di atas 500 KB dikompres di browser sebelum dikirim.</div>
@@ -536,8 +537,10 @@
     const sp12Field = document.getElementById('sp12_field');
     const lighterField = document.getElementById('lighter_field');
     const lighter = document.getElementById('lighter');
+    const uploadProofCard = document.getElementById('upload_proof_card');
     const transactionPhotoField = document.getElementById('transaction_photo_field');
     const transactionPhotoInput = document.getElementById('transaction_photo');
+    const chatPhotoField = document.getElementById('chat_photo_field');
     const chatPhotoInput = document.getElementById('chat_photo');
     const tokenStatus = document.getElementById('tokenStatus');
     const surveyForm = document.getElementById('surveyForm');
@@ -581,7 +584,7 @@
     }
 
     function buildProductTransactions() {
-      const isPurchased = !hasPurchased || hasPurchased.value !== 'false';
+      const isPurchased = hasPurchased && String(hasPurchased.value || '').trim().toLowerCase() === 'true';
       if (!isPurchased) {
         if (productTransactionsInput) {
           productTransactionsInput.value = '';
@@ -609,23 +612,35 @@
     }
 
     function updatePurchaseFields() {
-      const isPurchased = !hasPurchased || hasPurchased.value !== 'false';
+      const purchaseValue = hasPurchased ? String(hasPurchased.value || '').trim().toLowerCase() : '';
+      const isPurchased = purchaseValue === 'true';
+      const isNotPurchased = purchaseValue === 'false';
+      const hasAnswered = isPurchased || isNotPurchased;
 
-      setFieldVisibility(nonPurchaseReasonField, !isPurchased);
+      setFieldVisibility(nonPurchaseReasonField, isNotPurchased);
       setFieldVisibility(sp12Field, isPurchased);
       setFieldVisibility(lighterField, isPurchased);
+      setFieldVisibility(uploadProofCard, hasAnswered);
       setFieldVisibility(transactionPhotoField, isPurchased);
+      setFieldVisibility(chatPhotoField, hasAnswered);
 
       if (kcArea) kcArea.required = true;
       if (sp12Pack) sp12Pack.required = isPurchased;
-      if (nonPurchaseReasons) nonPurchaseReasons.required = !isPurchased;
+      if (nonPurchaseReasons) nonPurchaseReasons.required = isNotPurchased;
       if (transactionPhotoInput) transactionPhotoInput.required = isPurchased;
-      if (chatPhotoInput) chatPhotoInput.required = true;
+      if (chatPhotoInput) chatPhotoInput.required = hasAnswered;
 
       if (!isPurchased) {
+        if (lighter) lighter.value = '';
         if (productTransactionsInput) productTransactionsInput.value = '';
         if (transactionPhotoInput) transactionPhotoInput.value = '';
-      } else {
+      }
+
+      if (!isNotPurchased && nonPurchaseReasons) {
+        nonPurchaseReasons.value = '';
+      }
+
+      if (isPurchased) {
         buildProductTransactions();
       }
     }
@@ -1076,7 +1091,7 @@
 
     if (surveyForm) {
       surveyForm.addEventListener('submit', async function (e) {
-        const isPurchased = !hasPurchased || hasPurchased.value !== 'false';
+        const isPurchased = hasPurchased && String(hasPurchased.value || '').trim().toLowerCase() === 'true';
         if (isPurchased) {
           updateKcAreaLabel();
           const products = buildProductTransactions();
