@@ -1740,16 +1740,36 @@ def get_today_kc_usage_summary(date_from=None, date_to=None):
     qdate_to = date_to if date_to else (date_from if date_from else today)
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT v.kc_token, v.kc_name, v.token_area, v.kc_username, v.kc_password, v.bearer_token, v.daily_limit, v.is_active,
-               COALESCE(SUM(u.total_submit), 0) AS total_submit
-        FROM valid_kc_tokens v
-        LEFT JOIN kc_token_usage u
-          ON v.kc_token = u.kc_token
-         AND u.usage_date >= %s AND u.usage_date <= %s
-        GROUP BY v.kc_token, v.kc_name, v.token_area, v.kc_username, v.kc_password, v.bearer_token, v.daily_limit, v.is_active
-        ORDER BY v.kc_name ASC, v.kc_token ASC
-    """, (qdate_from, qdate_to))
+    if qdate_from == qdate_to:
+        # Single-day view: carry over previous day's usage if limit was not reached
+        cur.execute("""
+            SELECT v.kc_token, v.kc_name, v.token_area, v.kc_username, v.kc_password, v.bearer_token, v.daily_limit, v.is_active,
+                   CASE
+                       WHEN today_u.total_submit IS NOT NULL THEN today_u.total_submit
+                       WHEN prev_u.total_submit IS NOT NULL AND prev_u.total_submit < v.daily_limit THEN prev_u.total_submit
+                       ELSE 0
+                   END AS total_submit
+            FROM valid_kc_tokens v
+            LEFT JOIN kc_token_usage today_u
+              ON today_u.kc_token = v.kc_token AND today_u.usage_date = %s
+            LEFT JOIN LATERAL (
+                SELECT total_submit FROM kc_token_usage
+                WHERE kc_token = v.kc_token AND usage_date < %s
+                ORDER BY usage_date DESC LIMIT 1
+            ) prev_u ON TRUE
+            ORDER BY v.kc_name ASC, v.kc_token ASC
+        """, (qdate_from, qdate_from))
+    else:
+        cur.execute("""
+            SELECT v.kc_token, v.kc_name, v.token_area, v.kc_username, v.kc_password, v.bearer_token, v.daily_limit, v.is_active,
+                   COALESCE(SUM(u.total_submit), 0) AS total_submit
+            FROM valid_kc_tokens v
+            LEFT JOIN kc_token_usage u
+              ON v.kc_token = u.kc_token
+             AND u.usage_date >= %s AND u.usage_date <= %s
+            GROUP BY v.kc_token, v.kc_name, v.token_area, v.kc_username, v.kc_password, v.bearer_token, v.daily_limit, v.is_active
+            ORDER BY v.kc_name ASC, v.kc_token ASC
+        """, (qdate_from, qdate_to))
     rows = cur.fetchall()
     conn.close()
     display = qdate_from if qdate_from == qdate_to else f"{qdate_from} s/d {qdate_to}"
@@ -1844,9 +1864,54 @@ def get_kc_token_usage(kc_token, usage_date):
     return row["total_submit"] if row else 0
 
 
-def increment_kc_token_usage(kc_token, usage_date):
+def _get_effective_usage(kc_token, today, daily_limit):
+    """Returns today's usage, carrying over from the most recent previous day if limit was not reached."""
     conn = get_db_connection()
     cur = conn.cursor()
+    cur.execute(
+        "SELECT total_submit FROM kc_token_usage WHERE kc_token = %s AND usage_date = %s",
+        (kc_token, today),
+    )
+    row = cur.fetchone()
+    if row:
+        conn.close()
+        return row["total_submit"]
+    cur.execute("""
+        SELECT total_submit FROM kc_token_usage
+        WHERE kc_token = %s AND usage_date < %s
+        ORDER BY usage_date DESC LIMIT 1
+    """, (kc_token, today))
+    prev = cur.fetchone()
+    conn.close()
+    if prev and prev["total_submit"] < daily_limit:
+        return prev["total_submit"]
+    return 0
+
+
+def increment_kc_token_usage(kc_token, usage_date, daily_limit=None):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    if daily_limit is not None:
+        cur.execute(
+            "SELECT total_submit FROM kc_token_usage WHERE kc_token = %s AND usage_date = %s",
+            (kc_token, usage_date),
+        )
+        if cur.fetchone() is None:
+            cur.execute("""
+                SELECT total_submit FROM kc_token_usage
+                WHERE kc_token = %s AND usage_date < %s
+                ORDER BY usage_date DESC LIMIT 1
+            """, (kc_token, usage_date))
+            prev = cur.fetchone()
+            if prev and prev["total_submit"] < daily_limit:
+                cur.execute("""
+                    INSERT INTO kc_token_usage (kc_token, usage_date, total_submit)
+                    VALUES (%s, %s, %s)
+                """, (kc_token, usage_date, prev["total_submit"] + 1))
+                conn.commit()
+                conn.close()
+                return
 
     cur.execute("""
         INSERT INTO kc_token_usage (kc_token, usage_date, total_submit)
@@ -1861,7 +1926,7 @@ def increment_kc_token_usage(kc_token, usage_date):
 
 def get_remaining_quota(kc_token, daily_limit):
     today = get_today_wib()
-    used = get_kc_token_usage(kc_token, today)
+    used = _get_effective_usage(kc_token, today, daily_limit)
     remaining = max(0, daily_limit - used)
     return used, remaining, today
 
@@ -1889,7 +1954,7 @@ def auto_disable_kc_token_if_limit_reached(kc_token):
     if daily_limit < 1:
         daily_limit = DEFAULT_DAILY_LIMIT
 
-    used_today = get_kc_token_usage(kc_token, get_today_wib())
+    used_today = _get_effective_usage(kc_token, get_today_wib(), daily_limit)
 
     if is_daily_quota_exhausted(used_today, daily_limit) and kc_detail["is_active"] == 1:
         update_kc_token(
@@ -2748,7 +2813,7 @@ def user_app():
 
             elif final_state in {"SUCCESS", "LIKELY_SUCCESS"}:
                 mark_phone_as_used(phone_number, kc_token)
-                increment_kc_token_usage(kc_token, quota_date)
+                increment_kc_token_usage(kc_token, quota_date, daily_limit)
                 auto_disabled, _used_after_submit, _daily_limit_after_submit = auto_disable_kc_token_if_limit_reached(kc_token)
                 used_today, remaining_today, quota_date = get_remaining_quota(kc_token, daily_limit)
                 success_venue = kc_area_label or current_bumo
