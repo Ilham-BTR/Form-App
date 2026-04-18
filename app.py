@@ -188,6 +188,11 @@ def init_db():
     """)
 
     cur.execute("""
+        ALTER TABLE valid_kc_tokens
+        ADD COLUMN IF NOT EXISTS created_date TEXT NOT NULL DEFAULT ''
+    """)
+
+    cur.execute("""
         SELECT 1
         FROM information_schema.columns
         WHERE table_name = 'valid_kc_tokens'
@@ -1547,7 +1552,7 @@ def get_kc_token_detail(kc_token):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT kc_token, kc_name, token_area, kc_username, kc_password, bearer_token, daily_limit, is_active
+        SELECT kc_token, kc_name, token_area, kc_username, kc_password, bearer_token, daily_limit, is_active, created_date
         FROM valid_kc_tokens
         WHERE kc_token = %s
     """, (kc_token,))
@@ -1646,10 +1651,10 @@ def create_kc_token(kc_token, kc_name, token_area, bearer_token, daily_limit, kc
     cur = conn.cursor()
     cur.execute("""
         INSERT INTO valid_kc_tokens (
-            kc_token, kc_name, token_area, kc_username, kc_password, bearer_token, daily_limit, is_active
+            kc_token, kc_name, token_area, kc_username, kc_password, bearer_token, daily_limit, is_active, created_date
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, 1)
-    """, (kc_token, kc_name, token_area, kc_username, kc_password, bearer_token, daily_limit))
+        VALUES (%s, %s, %s, %s, %s, %s, %s, 1, %s)
+    """, (kc_token, kc_name, token_area, kc_username, kc_password, bearer_token, daily_limit, get_today_wib()))
     conn.commit()
     conn.close()
 
@@ -1945,6 +1950,15 @@ def is_daily_quota_exhausted(used_today, daily_limit):
     return used >= limit
 
 
+def _has_any_usage(kc_token):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM kc_token_usage WHERE kc_token = %s LIMIT 1", (kc_token,))
+    row = cur.fetchone()
+    conn.close()
+    return row is not None
+
+
 def auto_disable_kc_token_if_limit_reached(kc_token):
     kc_detail = get_kc_token_detail(kc_token)
     if not kc_detail:
@@ -1954,7 +1968,8 @@ def auto_disable_kc_token_if_limit_reached(kc_token):
     if daily_limit < 1:
         daily_limit = DEFAULT_DAILY_LIMIT
 
-    used_today = _get_effective_usage(kc_token, get_today_wib(), daily_limit)
+    today = get_today_wib()
+    used_today = _get_effective_usage(kc_token, today, daily_limit)
 
     if is_daily_quota_exhausted(used_today, daily_limit) and kc_detail["is_active"] == 1:
         update_kc_token(
@@ -1966,6 +1981,21 @@ def auto_disable_kc_token_if_limit_reached(kc_token):
             is_active=0,
         )
         return True, used_today, daily_limit
+
+    # Auto-disable token yang tidak pernah dipakai sama sekali dan sudah melewati hari pembuatannya
+    created_date = (kc_detail.get("created_date") or "").strip()
+    if used_today == 0 and created_date and created_date < today and kc_detail["is_active"] == 1:
+        has_any_usage = _has_any_usage(kc_token)
+        if not has_any_usage:
+            update_kc_token(
+                old_kc_token=kc_token,
+                new_kc_token=kc_detail["kc_token"],
+                kc_name=kc_detail["kc_name"],
+                bearer_token=kc_detail["bearer_token"],
+                daily_limit=daily_limit,
+                is_active=0,
+            )
+            return True, 0, daily_limit
 
     return False, used_today, daily_limit
 
