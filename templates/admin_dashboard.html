@@ -93,6 +93,10 @@
       background: #475569;
     }
 
+    .btn-refresh {
+      background: #16a34a;
+    }
+
     .stats {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -450,6 +454,7 @@
             </td>
             <td>
               <div class="row-actions">
+                <button class="btn btn-sm btn-refresh" onclick="refreshBearerToken(this, '{{ row.kc_token }}')">Refresh Token</button>
                 <a class="btn btn-sm btn-secondary" href="/admin/token/{{ row.kc_token }}/edit">Edit</a>
 
                 <form class="inline" method="post" action="/admin/token/{{ row.kc_token }}/toggle">
@@ -577,6 +582,33 @@
     </div>
 
   </div>
+
+  <script>
+    async function refreshBearerToken(btn, kcToken) {
+      if (!confirm('Refresh bearer token untuk KC "' + kcToken + '"?\nProses ini akan login ulang menggunakan username & password yang tersimpan.')) return;
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        const res = await fetch('/admin/token/' + encodeURIComponent(kcToken) + '/refresh-bearer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert('Bearer token berhasil diperbarui (source: ' + data.token_source + ').');
+          location.reload();
+        } else {
+          alert('Gagal: ' + (data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Error: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    }
+  </script>
 </body>
 
 </html>

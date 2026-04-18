@@ -3216,6 +3216,80 @@ def admin_edit_token(kc_token):
     return render_template("admin_token_form.html", error=error, mode="edit", token_data=token_data)
 
 
+@app.route("/admin/token/<path:kc_token>/refresh-bearer", methods=["POST"])
+@admin_required
+def admin_refresh_bearer_token(kc_token):
+    kc_detail = get_kc_token_detail(kc_token)
+    if not kc_detail:
+        return jsonify({"success": False, "error": "KC token tidak ditemukan."})
+
+    username = (kc_detail.get("kc_username") or "").strip()
+    password = (kc_detail.get("kc_password") or "").strip()
+    if not username or not password:
+        return jsonify({"success": False, "error": "Username atau password belum diisi di data KC token ini."})
+
+    secret = os.environ.get("APP_HMAC_SECRET", "").strip()
+    if not secret:
+        return jsonify({"success": False, "error": "APP_HMAC_SECRET belum di-set."})
+
+    captcha_key = os.environ.get("TWOCAPTCHA_API_KEY", "").strip()
+    if not captcha_key:
+        return jsonify({"success": False, "error": "TWOCAPTCHA_API_KEY belum di-set."})
+
+    try:
+        recaptcha_token = _sl_solve_recaptcha(captcha_key)
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Auto-solve captcha gagal: {e}"})
+
+    ts = _sl_utc_timestamp_ms()
+    body_obj = {
+        "identifier": username,
+        "password": base64.b64encode(password.encode()).decode(),
+        "type_of_web": _SL_DEFAULT_TYPE_OF_WEB,
+        "recaptcha_token": recaptcha_token,
+    }
+    hash_val = _sl_build_hash(secret, ts, _SL_AUTH_ENDPOINT, body_obj)
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Content-Type": "application/json",
+        "Dnt": "1",
+        "Hash": hash_val,
+        "Origin": "https://letscml.id",
+        "Referer": "https://letscml.id/",
+        "Timestamp": ts,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+    }
+
+    try:
+        resp = requests.post(_SL_BASE_URL + _SL_AUTH_ENDPOINT, json=body_obj, headers=headers, timeout=45)
+    except requests.exceptions.Timeout:
+        return jsonify({"success": False, "error": "Timeout (45s)."})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+    token, token_source = _sl_extract_token(resp)
+    if not token:
+        try:
+            preview = str(resp.json())[:200]
+        except Exception:
+            preview = resp.text[:200]
+        return jsonify({"success": False, "error": f"Token tidak ditemukan. Status: {resp.status_code}. {preview}"})
+
+    update_kc_token(
+        old_kc_token=kc_token,
+        new_kc_token=kc_detail["kc_token"],
+        kc_name=kc_detail["kc_name"],
+        bearer_token=token,
+        daily_limit=kc_detail["daily_limit"],
+        token_area=kc_detail.get("token_area", ""),
+        kc_username=username,
+        kc_password=password,
+    )
+    logger.info(f"Bearer token refreshed for KC {kc_token} via refresh-bearer route (source: {token_source})")
+    return jsonify({"success": True, "token_source": token_source})
+
+
 @app.route("/admin/token/import", methods=["POST"])
 @admin_required
 def admin_import_tokens():
