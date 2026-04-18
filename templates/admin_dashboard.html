@@ -484,12 +484,16 @@
         <input type="hidden" name="token_sort_dir" value="{{ selected_token_sort_dir }}">
         <input type="hidden" name="token_rows" value="{{ selected_token_rows }}">
         <div class="toolbar-field">
-          <label for="usage_date">Tanggal</label>
-          <input class="input" type="date" id="usage_date" name="usage_date" value="{{ selected_usage_date }}">
+          <label for="usage_date_from">Dari</label>
+          <input class="input" type="date" id="usage_date_from" name="usage_date_from" value="{{ selected_usage_date_from }}">
+        </div>
+        <div class="toolbar-field">
+          <label for="usage_date_to">Sampai</label>
+          <input class="input" type="date" id="usage_date_to" name="usage_date_to" value="{{ selected_usage_date_to }}">
         </div>
         <button class="btn btn-sm" type="submit">Terapkan</button>
         <a class="btn btn-sm btn-secondary" href="/admin">Reset</a>
-        <a class="btn btn-sm btn-secondary" href="/admin/usage/export{% if selected_usage_date %}?date_from={{ selected_usage_date }}&date_to={{ selected_usage_date }}{% endif %}">Export Excel</a>
+        <a class="btn btn-sm btn-secondary" href="/admin/usage/export?date_from={{ selected_usage_date_from }}&date_to={{ selected_usage_date_to }}">Export Excel</a>
       </form>
       <table>
         <thead>

@@ -1732,22 +1732,26 @@ def delete_kc_token(kc_token):
     conn.close()
 
 
-def get_today_kc_usage_summary(date=None):
-    query_date = date if date else get_today_wib()
+def get_today_kc_usage_summary(date_from=None, date_to=None):
+    today = get_today_wib()
+    qdate_from = date_from if date_from else today
+    qdate_to = date_to if date_to else (date_from if date_from else today)
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
         SELECT v.kc_token, v.kc_name, v.token_area, v.kc_username, v.kc_password, v.bearer_token, v.daily_limit, v.is_active,
-               COALESCE(u.total_submit, 0) AS total_submit
+               COALESCE(SUM(u.total_submit), 0) AS total_submit
         FROM valid_kc_tokens v
         LEFT JOIN kc_token_usage u
           ON v.kc_token = u.kc_token
-         AND u.usage_date = %s
+         AND u.usage_date >= %s AND u.usage_date <= %s
+        GROUP BY v.kc_token, v.kc_name, v.token_area, v.kc_username, v.kc_password, v.bearer_token, v.daily_limit, v.is_active
         ORDER BY v.kc_name ASC, v.kc_token ASC
-    """, (query_date,))
+    """, (qdate_from, qdate_to))
     rows = cur.fetchall()
     conn.close()
-    return rows, query_date
+    display = qdate_from if qdate_from == qdate_to else f"{qdate_from} s/d {qdate_to}"
+    return rows, display
 
 
 def get_all_kc_usage_data(date_from="", date_to=""):
@@ -2894,13 +2898,22 @@ def admin_logout():
 @admin_required
 def admin_dashboard():
     token_rows = get_all_kc_tokens()
-    selected_usage_date = (request.args.get("usage_date") or "").strip()
-    if selected_usage_date:
-        try:
-            datetime.strptime(selected_usage_date, "%Y-%m-%d")
-        except ValueError:
-            selected_usage_date = ""
-    usage_rows, usage_date = get_today_kc_usage_summary(date=selected_usage_date or None)
+    def parse_date_param(key):
+        val = (request.args.get(key) or "").strip()
+        if val:
+            try:
+                datetime.strptime(val, "%Y-%m-%d")
+                return val
+            except ValueError:
+                pass
+        return ""
+
+    selected_usage_date_from = parse_date_param("usage_date_from")
+    selected_usage_date_to = parse_date_param("usage_date_to")
+    usage_rows, usage_date = get_today_kc_usage_summary(
+        date_from=selected_usage_date_from or None,
+        date_to=selected_usage_date_to or None,
+    )
     recent_submissions = get_recent_submission_attempts(limit=10)
 
     selected_token_filter = (request.args.get("token_filter") or "").strip()
@@ -2975,7 +2988,8 @@ def admin_dashboard():
         selected_token_sort_dir=selected_token_sort_dir,
         token_filtered_count=token_filtered_count,
         token_visible_count=len(masked_token_rows),
-        selected_usage_date=selected_usage_date,
+        selected_usage_date_from=selected_usage_date_from,
+        selected_usage_date_to=selected_usage_date_to,
     )
 
 
