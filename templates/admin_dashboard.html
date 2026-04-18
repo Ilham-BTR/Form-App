@@ -475,8 +475,22 @@
     </div>
 
     <div class="section">
-      <h2>Usage Hari Ini ({{ usage_date }})</h2>
-      <p class="section-desc">Ringkasan pemakaian token untuk submit form utama pada hari ini.</p>
+      <h2>Usage ({{ usage_date }})</h2>
+      <p class="section-desc">Ringkasan pemakaian token untuk submit form utama.</p>
+      <form class="table-toolbar" method="get" action="/admin">
+        <input type="hidden" name="token_filter" value="{{ selected_token_filter }}">
+        <input type="hidden" name="token_status_filter" value="{{ selected_token_status_filter }}">
+        <input type="hidden" name="token_sort_by" value="{{ selected_token_sort_by }}">
+        <input type="hidden" name="token_sort_dir" value="{{ selected_token_sort_dir }}">
+        <input type="hidden" name="token_rows" value="{{ selected_token_rows }}">
+        <div class="toolbar-field">
+          <label for="usage_date">Tanggal</label>
+          <input class="input" type="date" id="usage_date" name="usage_date" value="{{ selected_usage_date }}">
+        </div>
+        <button class="btn btn-sm" type="submit">Terapkan</button>
+        <a class="btn btn-sm btn-secondary" href="/admin">Reset</a>
+        <a class="btn btn-sm btn-secondary" href="/admin/usage/export{% if selected_usage_date %}?date_from={{ selected_usage_date }}&date_to={{ selected_usage_date }}{% endif %}">Export Excel</a>
+      </form>
       <table>
         <thead>
           <tr>

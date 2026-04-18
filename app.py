@@ -1732,8 +1732,8 @@ def delete_kc_token(kc_token):
     conn.close()
 
 
-def get_today_kc_usage_summary():
-    today = get_today_wib()
+def get_today_kc_usage_summary(date=None):
+    query_date = date if date else get_today_wib()
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
@@ -1744,10 +1744,55 @@ def get_today_kc_usage_summary():
           ON v.kc_token = u.kc_token
          AND u.usage_date = %s
         ORDER BY v.kc_name ASC, v.kc_token ASC
-    """, (today,))
+    """, (query_date,))
     rows = cur.fetchall()
     conn.close()
-    return rows, today
+    return rows, query_date
+
+
+def get_all_kc_usage_data(date_from="", date_to=""):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    query = ["""
+        SELECT u.usage_date, v.kc_name, v.token_area, u.kc_token, v.kc_username, v.daily_limit, u.total_submit
+        FROM kc_token_usage u
+        LEFT JOIN valid_kc_tokens v ON v.kc_token = u.kc_token
+        WHERE 1=1
+    """]
+    params = []
+    if date_from:
+        query.append("AND u.usage_date >= %s")
+        params.append(date_from)
+    if date_to:
+        query.append("AND u.usage_date <= %s")
+        params.append(date_to)
+    query.append("ORDER BY u.usage_date DESC, v.kc_name ASC")
+    cur.execute(" ".join(query), params)
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def build_kc_usage_export_excel(date_from="", date_to=""):
+    rows = get_all_kc_usage_data(date_from=date_from, date_to=date_to)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Usage KC Token"
+    ws.append(["Tanggal", "Nama KC", "Area", "KC Token", "Username", "Limit Harian", "Submit"])
+    for row in rows:
+        ws.append([
+            row["usage_date"],
+            row["kc_name"] or "",
+            row["token_area"] or "",
+            row["kc_token"],
+            row["kc_username"] or "",
+            row["daily_limit"] or 0,
+            row["total_submit"],
+        ])
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output.read()
 
 
 def build_kc_token_export_csv():
@@ -2849,7 +2894,13 @@ def admin_logout():
 @admin_required
 def admin_dashboard():
     token_rows = get_all_kc_tokens()
-    usage_rows, usage_date = get_today_kc_usage_summary()
+    selected_usage_date = (request.args.get("usage_date") or "").strip()
+    if selected_usage_date:
+        try:
+            datetime.strptime(selected_usage_date, "%Y-%m-%d")
+        except ValueError:
+            selected_usage_date = ""
+    usage_rows, usage_date = get_today_kc_usage_summary(date=selected_usage_date or None)
     recent_submissions = get_recent_submission_attempts(limit=10)
 
     selected_token_filter = (request.args.get("token_filter") or "").strip()
@@ -2924,6 +2975,7 @@ def admin_dashboard():
         selected_token_sort_dir=selected_token_sort_dir,
         token_filtered_count=token_filtered_count,
         token_visible_count=len(masked_token_rows),
+        selected_usage_date=selected_usage_date,
     )
 
 
@@ -3083,6 +3135,21 @@ def admin_export_tokens():
     return Response(
         csv_content,
         mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.route("/admin/usage/export")
+@admin_required
+def admin_export_usage():
+    date_from = (request.args.get("date_from") or "").strip()
+    date_to = (request.args.get("date_to") or "").strip()
+    excel_content = build_kc_usage_export_excel(date_from=date_from, date_to=date_to)
+    today = get_today_wib()
+    filename = f"usage-kc-token-{today}.xlsx"
+    return Response(
+        excel_content,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
