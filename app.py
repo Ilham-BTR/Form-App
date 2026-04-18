@@ -3514,9 +3514,9 @@ def admin_single_login_page():
 @app.route("/admin/single-login/token", methods=["POST"])
 @admin_required
 def admin_single_login_token():
-    secret = os.environ.get("APP_SECRET", "").strip()
+    secret = os.environ.get("APP_HMAC_SECRET", "").strip()
     if not secret:
-        return jsonify({"success": False, "error": "APP_SECRET belum di-set.", "status_code": None,
+        return jsonify({"success": False, "error": "APP_HMAC_SECRET belum di-set.", "status_code": None,
                         "token": "", "token_source": "", "timestamp": "", "hash": "", "response_preview": ""})
 
     data = request.get_json(silent=True) or {}
