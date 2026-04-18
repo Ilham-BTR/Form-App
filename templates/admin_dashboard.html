@@ -375,6 +375,14 @@
             value="{{ selected_token_filter }}" placeholder="Nama KC, area, token, username, status">
         </div>
         <div class="toolbar-field">
+          <label for="token_status_filter">Status</label>
+          <select class="input" id="token_status_filter" name="token_status_filter">
+            <option value="" {% if selected_token_status_filter == '' %}selected{% endif %}>Semua</option>
+            <option value="aktif" {% if selected_token_status_filter == 'aktif' %}selected{% endif %}>Aktif</option>
+            <option value="nonaktif" {% if selected_token_status_filter == 'nonaktif' %}selected{% endif %}>Nonaktif</option>
+          </select>
+        </div>
+        <div class="toolbar-field">
           <label for="token_sort_by">Sort</label>
           <select class="input" id="token_sort_by" name="token_sort_by">
             <option value="kc_name" {% if selected_token_sort_by == 'kc_name' %}selected{% endif %}>Nama KC</option>

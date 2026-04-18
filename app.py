@@ -1595,12 +1595,18 @@ def get_token_sort_value(row, sort_by):
     return str(row.get(sort_by) or "").lower()
 
 
-def filter_sort_limit_token_rows(rows, filter_text="", sort_by="kc_name", sort_dir="asc", rows_value="10"):
+def filter_sort_limit_token_rows(rows, filter_text="", status_filter="", sort_by="kc_name", sort_dir="asc", rows_value="10"):
     current_filter = str(filter_text or "").strip().lower()
+    current_status = str(status_filter or "").strip().lower()
     sort_by, sort_dir = normalize_token_sort(sort_by, sort_dir)
     rows_value = normalize_token_rows_param(rows_value)
 
     filtered_rows = list(rows)
+    if current_status == "aktif":
+        filtered_rows = [row for row in filtered_rows if row.get("is_active") == 1]
+    elif current_status == "nonaktif":
+        filtered_rows = [row for row in filtered_rows if row.get("is_active") != 1]
+
     if current_filter:
         filtered_rows = [
             row for row in filtered_rows
@@ -2847,6 +2853,9 @@ def admin_dashboard():
     recent_submissions = get_recent_submission_attempts(limit=10)
 
     selected_token_filter = (request.args.get("token_filter") or "").strip()
+    selected_token_status_filter = (request.args.get("token_status_filter") or "").strip().lower()
+    if selected_token_status_filter not in ("", "aktif", "nonaktif"):
+        selected_token_status_filter = ""
     selected_token_rows = normalize_token_rows_param(request.args.get("token_rows", "10"))
     selected_token_sort_by, selected_token_sort_dir = normalize_token_sort(
         request.args.get("token_sort_by", "kc_name"),
@@ -2875,6 +2884,7 @@ def admin_dashboard():
     masked_token_rows, token_filtered_count = filter_sort_limit_token_rows(
         rows=masked_token_rows,
         filter_text=selected_token_filter,
+        status_filter=selected_token_status_filter,
         sort_by=selected_token_sort_by,
         sort_dir=selected_token_sort_dir,
         rows_value=selected_token_rows,
@@ -2908,6 +2918,7 @@ def admin_dashboard():
         token_import_message=request.args.get("token_import_message", ""),
         token_import_error=request.args.get("token_import_error", ""),
         selected_token_filter=selected_token_filter,
+        selected_token_status_filter=selected_token_status_filter,
         selected_token_rows=selected_token_rows,
         selected_token_sort_by=selected_token_sort_by,
         selected_token_sort_dir=selected_token_sort_dir,
