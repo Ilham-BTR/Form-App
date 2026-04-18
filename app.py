@@ -3480,7 +3480,7 @@ def _sl_utc_timestamp_ms() -> str:
 
 
 def _sl_build_hash(secret: str, timestamp: str, endpoint: str, body_obj: dict) -> str:
-    body_json = json.dumps(body_obj, separators=(",", ":"))
+    body_json = json.dumps(body_obj, separators=(",", ":"), ensure_ascii=False)
     raw = timestamp + "POST" + endpoint + "" + body_json
     return hmac.new(secret.encode(), raw.encode(), hashlib.sha256).hexdigest()
 
@@ -3495,7 +3495,11 @@ def _sl_extract_token(resp: requests.Response):
         if m:
             return m.group(1), "set-cookie"
     try:
-        text = json.dumps(resp.json())
+        data = resp.json()
+        jwt = data.get("jwt") or data.get("token") or data.get("access_token")
+        if jwt and isinstance(jwt, str) and jwt.startswith("eyJ"):
+            return jwt, "json"
+        text = json.dumps(data, ensure_ascii=False)
     except Exception:
         text = resp.text
     m = re.search(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", text)
