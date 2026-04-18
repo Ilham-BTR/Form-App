@@ -207,9 +207,26 @@
 
         <div class="field">
           <label>Bearer Token</label>
+          <div class="token-row" style="margin-bottom:8px;">
+            <input
+              class="input"
+              type="text"
+              id="sl_recaptcha"
+              placeholder="reCAPTCHA token — kosongkan untuk auto-solve via 2captcha"
+              autocomplete="off"
+            >
+            <button type="button" class="btn btn-sm" id="btn-tarik" onclick="tarikToken()">
+              Tarik Token
+            </button>
+            <button type="button" class="btn btn-sm" id="btn-browser" onclick="browserLogin()" style="background:#1d4ed8;white-space:nowrap;">
+              Browser Login
+            </button>
+          </div>
+          <div id="sl-status" style="font-size:12px;margin-bottom:6px;display:none;"></div>
           <textarea
             class="textarea"
             name="bearer_token"
+            id="bearer_token"
             required
             placeholder="Paste bearer token untuk KC ini"
           >{% if token_data %}{{ token_data.bearer_token }}{% endif %}</textarea>
@@ -242,12 +259,86 @@
     function generateToken(length = 16) {
       const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
       let randomPart = '';
-
       for (let i = 0; i < length; i++) {
         randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
       }
-
       document.getElementById('kc_token').value = 'KC-' + randomPart;
+    }
+
+    async function tarikToken() {
+      const username = document.querySelector('input[name="kc_username"]').value.trim();
+      const password = document.querySelector('input[name="kc_password"]').value.trim();
+      const recaptcha_token = document.getElementById('sl_recaptcha').value.trim();
+      const btn = document.getElementById('btn-tarik');
+
+      if (!username) { showSlStatus('Username kosong.', 'error'); return; }
+      if (!password) { showSlStatus('Password kosong.', 'error'); return; }
+      if (!recaptcha_token) { showSlStatus('reCAPTCHA token kosong.', 'error'); return; }
+
+      btn.disabled = true;
+      btn.textContent = '...';
+      showSlStatus('Mengambil token...', 'info');
+
+      try {
+        const res = await fetch('/admin/single-login/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, type_of_web: 'spgCMKT', recaptcha_token })
+        });
+        const data = await res.json();
+        if (data.success && data.token) {
+          document.getElementById('bearer_token').value = data.token;
+          showSlStatus('Token berhasil diambil (source: ' + data.token_source + ').', 'ok');
+        } else {
+          showSlStatus(data.error || 'Token tidak ditemukan.', 'error');
+        }
+      } catch (e) {
+        showSlStatus('Gagal: ' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Tarik Token';
+      }
+    }
+
+    async function browserLogin() {
+      const username = document.querySelector('input[name="kc_username"]').value.trim();
+      const password = document.querySelector('input[name="kc_password"]').value.trim();
+      const btn = document.getElementById('btn-browser');
+
+      if (!username) { showSlStatus('Username kosong.', 'error'); return; }
+      if (!password) { showSlStatus('Password kosong.', 'error'); return; }
+
+      btn.disabled = true;
+      btn.textContent = '...';
+      showSlStatus('Browser dibuka, tunggu hingga login selesai (maks 60 detik)...', 'info');
+
+      try {
+        const res = await fetch('/admin/single-login/browser-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, headless: false }),
+          signal: AbortSignal.timeout(90000)
+        });
+        const data = await res.json();
+        if (data.success && data.token) {
+          document.getElementById('bearer_token').value = data.token;
+          showSlStatus('Token berhasil diambil via browser (source: ' + data.token_source + ').', 'ok');
+        } else {
+          showSlStatus(data.error || 'Token tidak ditemukan.', 'error');
+        }
+      } catch (e) {
+        showSlStatus('Gagal: ' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Browser Login';
+      }
+    }
+
+    function showSlStatus(msg, type) {
+      const el = document.getElementById('sl-status');
+      el.textContent = msg;
+      el.style.display = 'block';
+      el.style.color = type === 'ok' ? '#166534' : type === 'error' ? '#991b1b' : '#64748b';
     }
   </script>
 </body>

@@ -4,6 +4,8 @@ from flask import Flask, render_template, request, redirect, url_for, jsonify, s
 import hmac
 import hashlib
 import json
+import re
+import base64
 import requests
 from urllib.parse import urlparse
 from datetime import datetime, timezone, timedelta
@@ -3462,6 +3464,287 @@ def admin_submissions_export():
         mimetype="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+# ── Single Login ──────────────────────────────────────────────────────────────
+
+_SL_BASE_URL = "https://ca-msfsax05-22-be-letscml-prd.mangosmoke-bb4ae1b7.southeastasia.azurecontainerapps.io"
+_SL_AUTH_ENDPOINT = "/api/auth/local"
+_SL_DEFAULT_TYPE_OF_WEB = "spgCMKT"
+
+
+def _sl_utc_timestamp_ms() -> str:
+    now = datetime.now(timezone.utc)
+    ms = int(now.timestamp() * 1000)
+    base = now.strftime("%Y-%m-%dT%H:%M:%S")
+    return f"{base}.{ms % 1000:03d}Z"
+
+
+def _sl_build_hash(secret: str, timestamp: str, endpoint: str, body_obj: dict) -> str:
+    body_json = json.dumps(body_obj, separators=(",", ":"))
+    raw = timestamp + "POST" + endpoint + "" + body_json
+    return hmac.new(secret.encode(), raw.encode(), hashlib.sha256).hexdigest()
+
+
+def _sl_extract_token(resp: requests.Response):
+    token = resp.cookies.get("token")
+    if token:
+        return token, "cookie"
+    set_cookie = resp.headers.get("Set-Cookie", "")
+    if set_cookie:
+        m = re.search(r"token=([^;]+)", set_cookie)
+        if m:
+            return m.group(1), "set-cookie"
+    try:
+        text = json.dumps(resp.json())
+    except Exception:
+        text = resp.text
+    m = re.search(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", text)
+    if m:
+        src = "json" if "application/json" in resp.headers.get("Content-Type", "") else "text"
+        return m.group(0), src
+    return "", "not_found"
+
+
+@app.route("/admin/single-login")
+@admin_required
+def admin_single_login_page():
+    return render_template("admin_single_login.html")
+
+
+@app.route("/admin/single-login/token", methods=["POST"])
+@admin_required
+def admin_single_login_token():
+    secret = os.environ.get("APP_SECRET", "").strip()
+    if not secret:
+        return jsonify({"success": False, "error": "APP_SECRET belum di-set.", "status_code": None,
+                        "token": "", "token_source": "", "timestamp": "", "hash": "", "response_preview": ""})
+
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    type_of_web = (data.get("type_of_web") or _SL_DEFAULT_TYPE_OF_WEB).strip()
+    recaptcha_token = (data.get("recaptcha_token") or "").strip()
+
+    if not username:
+        return jsonify({"success": False, "error": "Username kosong.", "status_code": None,
+                        "token": "", "token_source": "", "timestamp": "", "hash": "", "response_preview": ""})
+    if not password:
+        return jsonify({"success": False, "error": "Password kosong.", "status_code": None,
+                        "token": "", "token_source": "", "timestamp": "", "hash": "", "response_preview": ""})
+    if not recaptcha_token:
+        captcha_key = os.environ.get("TWOCAPTCHA_API_KEY", "").strip()
+        if not captcha_key:
+            return jsonify({"success": False, "error": "reCAPTCHA token kosong dan TWOCAPTCHA_API_KEY belum di-set.", "status_code": None,
+                            "token": "", "token_source": "", "timestamp": "", "hash": "", "response_preview": ""})
+        try:
+            recaptcha_token = _sl_solve_recaptcha(captcha_key)
+        except Exception as e:
+            return jsonify({"success": False, "error": f"Auto-solve captcha gagal: {e}", "status_code": None,
+                            "token": "", "token_source": "", "timestamp": "", "hash": "", "response_preview": ""})
+
+    ts = _sl_utc_timestamp_ms()
+    body_obj = {
+        "identifier": username,
+        "password": base64.b64encode(password.encode()).decode(),
+        "type_of_web": type_of_web,
+        "recaptcha_token": recaptcha_token,
+    }
+    hash_val = _sl_build_hash(secret, ts, _SL_AUTH_ENDPOINT, body_obj)
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Content-Type": "application/json",
+        "Dnt": "1",
+        "Hash": hash_val,
+        "Origin": "https://letscml.id",
+        "Referer": "https://letscml.id/",
+        "Timestamp": ts,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+    }
+
+    try:
+        resp = requests.post(_SL_BASE_URL + _SL_AUTH_ENDPOINT, json=body_obj, headers=headers, timeout=45)
+    except requests.exceptions.Timeout:
+        return jsonify({"success": False, "error": "Timeout (45s).", "status_code": None,
+                        "token": "", "token_source": "", "timestamp": ts, "hash": hash_val, "response_preview": ""})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e), "status_code": None,
+                        "token": "", "token_source": "", "timestamp": ts, "hash": hash_val, "response_preview": ""})
+
+    try:
+        preview = json.dumps(resp.json(), ensure_ascii=False, indent=2)[:2000]
+    except Exception:
+        preview = resp.text[:2000]
+
+    token, token_source = _sl_extract_token(resp)
+    success = resp.status_code == 200 and bool(token)
+    error_msg = "" if success else (f"Status {resp.status_code}." if not resp.ok else "Token tidak ditemukan.")
+
+    return jsonify({"success": success, "status_code": resp.status_code, "token": token,
+                    "token_source": token_source, "timestamp": ts, "hash": hash_val,
+                    "response_preview": preview, "error": error_msg})
+
+
+_SL_WEB_URL = "https://letscml.id/cml-team/cmkt/signin"
+_SL_RECAPTCHA_SITE_KEY = "6Lc6hNMqAAAAAJQdVFyxrTTM0yiD54R_iilOooZF"
+_SL_BROWSER_TIMEOUT = 60
+
+
+def _sl_solve_recaptcha(api_key: str) -> str:
+    submit = requests.post("https://2captcha.com/in.php", data={
+        "key": api_key,
+        "method": "userrecaptcha",
+        "googlekey": _SL_RECAPTCHA_SITE_KEY,
+        "pageurl": _SL_WEB_URL,
+        "json": 1,
+    }, timeout=30).json()
+
+    if submit.get("status") != 1:
+        raise ValueError(f"2captcha submit error: {submit.get('request')}")
+
+    task_id = submit["request"]
+
+    for _ in range(24):
+        time.sleep(5)
+        res = requests.get("https://2captcha.com/res.php", params={
+            "key": api_key,
+            "action": "get",
+            "id": task_id,
+            "json": 1,
+        }, timeout=15).json()
+        if res.get("status") == 1:
+            return res["request"]
+        if res.get("request") != "CAPCHA_NOT_READY":
+            raise ValueError(f"2captcha error: {res.get('request')}")
+
+    raise ValueError("2captcha timeout: token tidak diterima dalam 2 menit.")
+
+
+def _sl_get_url_origin(url: str) -> str:
+    parsed = urlparse(url)
+    return f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
+
+
+def _sl_capture_token_with_browser(username: str, password: str, headless: bool = False):
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        raise ValueError(
+            "Playwright belum terinstall.\n"
+            "Jalankan: pip install playwright && python -m playwright install chromium"
+        )
+
+    captured = {"token": "", "source": ""}
+
+    def _remember(raw, source):
+        if not raw or captured["token"]:
+            return
+        m = re.search(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", str(raw))
+        if m:
+            captured["token"] = m.group(0)
+            captured["source"] = source
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=headless)
+        try:
+            context = browser.new_context(ignore_https_errors=True)
+            origin = _sl_get_url_origin(_SL_WEB_URL)
+            try:
+                context.grant_permissions(["local-network-access"], origin=origin or None)
+            except Exception:
+                pass
+
+            page = context.new_page()
+
+            def on_response(resp):
+                try:
+                    url = resp.url
+                    if "/api/set-token" in url:
+                        from urllib.parse import parse_qs
+                        params = parse_qs(urlparse(url).query)
+                        _remember(params.get("token", [""])[0], "set-token url")
+                    if any(p in url for p in ("/api/auth/local", "/api/get-token", "/api/set-token")):
+                        _remember(resp.headers.get("set-cookie", ""), f"set-cookie {url}")
+                        try:
+                            _remember(resp.text(), f"body {url}")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            page.on("response", on_response)
+            page.goto(_SL_WEB_URL, wait_until="domcontentloaded", timeout=60000)
+
+            visible_inputs = []
+            for inp in page.locator("input").all():
+                try:
+                    if inp.is_visible(timeout=300) and inp.is_enabled(timeout=300):
+                        t = (inp.get_attribute("type") or "").strip().lower()
+                        if t not in ("hidden", "submit", "button", "checkbox", "radio"):
+                            visible_inputs.append(inp)
+                except Exception:
+                    continue
+
+            if len(visible_inputs) >= 2:
+                page.wait_for_timeout(800)
+                visible_inputs[0].fill(username)
+                page.wait_for_timeout(800)
+                visible_inputs[1].fill(password)
+                page.wait_for_timeout(800)
+            else:
+                raise ValueError("Field username/password tidak ditemukan di halaman.")
+
+            for sel in ['xpath=//*[@id="button"]', 'button:has-text("LOG IN")',
+                        'button:has-text("Login")', 'button[type="submit"]']:
+                try:
+                    loc = page.locator(sel).first
+                    loc.wait_for(state="visible", timeout=800)
+                    loc.click(timeout=5000)
+                    break
+                except Exception:
+                    continue
+
+            deadline = time.time() + _SL_BROWSER_TIMEOUT
+            while time.time() < deadline and not captured["token"]:
+                for cookie in context.cookies():
+                    if cookie.get("name") in ("tokenCML", "token"):
+                        _remember(cookie.get("value", ""), f"cookie {cookie.get('name')}")
+                if captured["token"]:
+                    break
+                page.wait_for_timeout(1000)
+
+            if not captured["token"]:
+                raise ValueError(
+                    f"Token tidak tertangkap dalam {_SL_BROWSER_TIMEOUT} detik. "
+                    "Pastikan login sukses dan reCAPTCHA sudah diselesaikan."
+                )
+
+            return captured["token"], captured["source"]
+        finally:
+            browser.close()
+
+
+@app.route("/admin/single-login/browser-token", methods=["POST"])
+@admin_required
+def admin_browser_login_token():
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    headless = bool(data.get("headless", False))
+
+    if not username:
+        return jsonify({"success": False, "error": "Username kosong.", "token": "", "token_source": ""})
+    if not password:
+        return jsonify({"success": False, "error": "Password kosong.", "token": "", "token_source": ""})
+
+    try:
+        token, source = _sl_capture_token_with_browser(username, password, headless=headless)
+        return jsonify({"success": True, "token": token, "token_source": source, "error": ""})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e), "token": "", "token_source": ""})
+
+
+# ── End Single Login ───────────────────────────────────────────────────────────
 
 init_db()
 
