@@ -3590,7 +3590,7 @@ def admin_single_login_token():
 
 
 _SL_WEB_URL = "https://letscml.id/cml-team/cmkt/signin"
-_SL_RECAPTCHA_SITE_KEY = "6Lc6hNMqAAAAAJQdVFyxrTTM0yiD54R_iilOooZF"
+_SL_RECAPTCHA_SITE_KEY = "6Lc6hNMqAAAAAJQdVFyxrTTM0yiD54R_iiIOooZF"
 _SL_BROWSER_TIMEOUT = 60
 
 
