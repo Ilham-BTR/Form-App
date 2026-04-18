@@ -1871,12 +1871,14 @@ def quantity_to_pack_label(quantity):
     raise ValueError(f"Quantity pack tidak valid: {quantity}")
 
 
-def build_product_transactions_json(sp12_label):
+def build_product_transactions_json(sp12_label, include_lighter=False):
     sp12_qty = pack_label_to_quantity(sp12_label)
     if sp12_qty <= 0:
         raise ValueError("Minimal CMKT SP12 harus 1 pack.")
 
     items = [{"product_name": "CMKT SP12", "quantity": sp12_qty}]
+    if include_lighter:
+        items.append({"product_name": "Lighter", "quantity": 1})
     return json.dumps(items, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -1894,6 +1896,8 @@ def parse_product_transactions_to_pack_labels(value):
             qty = int(item.get("quantity", 0) or 0)
             if name == "CMKT SP12":
                 sp12_qty = qty
+            elif name == "Lighter":
+                pass
             elif name:
                 raise ValueError(f"Produk tidak valid: {name}")
     return quantity_to_pack_label(sp12_qty)
@@ -1901,14 +1905,15 @@ def parse_product_transactions_to_pack_labels(value):
 
 def normalize_product_transactions_from_form(form):
     sp12_label = (form.get("sp12_pack") or form.get("cmkt12_pack") or "").strip()
+    include_lighter = (form.get("lighter") or "").strip() == "Ya"
 
     if sp12_label:
-        return build_product_transactions_json(sp12_label), sp12_label
+        return build_product_transactions_json(sp12_label, include_lighter), sp12_label
 
     current_value = (form.get("product_transactions") or "").strip()
     if current_value:
         sp12_label = parse_product_transactions_to_pack_labels(current_value)
-        return build_product_transactions_json(sp12_label), sp12_label
+        return build_product_transactions_json(sp12_label, include_lighter), sp12_label
 
     raise ValueError("Paket CMKT SP12 wajib dipilih.")
 
@@ -2574,6 +2579,9 @@ def user_app():
             if not kc_area:
                 raise ValueError("KC Area wajib dipilih.")
             if has_purchased == "true":
+                lighter_val = request.form.get("lighter", "").strip()
+                if lighter_val not in ("Ya", "Tidak"):
+                    raise ValueError("Pilihan lighter wajib diisi.")
                 product_transactions, selected_sp12_pack = normalize_product_transactions_from_form(request.form)
 
                 if not transaction_photo or not transaction_photo.filename:
