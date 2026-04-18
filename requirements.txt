@@ -4,4 +4,3 @@ python-dotenv
 openpyxl
 psycopg[binary]
 gunicorn
-playwright

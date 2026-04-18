@@ -218,9 +218,6 @@
             <button type="button" class="btn btn-sm" id="btn-tarik" onclick="tarikToken()">
               Tarik Token
             </button>
-            <button type="button" class="btn btn-sm" id="btn-browser" onclick="browserLogin()" style="background:#1d4ed8;white-space:nowrap;">
-              Browser Login
-            </button>
           </div>
           <div id="sl-status" style="font-size:12px;margin-bottom:6px;display:none;"></div>
           <textarea
@@ -297,40 +294,6 @@
       } finally {
         btn.disabled = false;
         btn.textContent = 'Tarik Token';
-      }
-    }
-
-    async function browserLogin() {
-      const username = document.querySelector('input[name="kc_username"]').value.trim();
-      const password = document.querySelector('input[name="kc_password"]').value.trim();
-      const btn = document.getElementById('btn-browser');
-
-      if (!username) { showSlStatus('Username kosong.', 'error'); return; }
-      if (!password) { showSlStatus('Password kosong.', 'error'); return; }
-
-      btn.disabled = true;
-      btn.textContent = '...';
-      showSlStatus('Browser dibuka, tunggu hingga login selesai (maks 60 detik)...', 'info');
-
-      try {
-        const res = await fetch('/admin/single-login/browser-token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password, headless: false }),
-          signal: AbortSignal.timeout(90000)
-        });
-        const data = await res.json();
-        if (data.success && data.token) {
-          document.getElementById('bearer_token').value = data.token;
-          showSlStatus('Token berhasil diambil via browser (source: ' + data.token_source + ').', 'ok');
-        } else {
-          showSlStatus(data.error || 'Token tidak ditemukan.', 'error');
-        }
-      } catch (e) {
-        showSlStatus('Gagal: ' + e.message, 'error');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = 'Browser Login';
       }
     }
 
