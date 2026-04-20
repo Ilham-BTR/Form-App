@@ -76,6 +76,15 @@
       margin-bottom: 14px;
       font-size: 14px;
     }
+    .success {
+      background: #dcfce7;
+      color: #166534;
+      border-radius: 16px;
+      padding: 12px;
+      margin-bottom: 14px;
+      font-size: 14px;
+      display: none;
+    }
     .actions {
       display: flex;
       gap: 10px;
@@ -106,6 +115,49 @@
       transform: scale(0.98);
     }
 
+    .btn:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .is-busy {
+      opacity: 0.7;
+      pointer-events: none;
+    }
+
+    .toast {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 9999;
+      min-width: 260px;
+      max-width: min(420px, calc(100vw - 32px));
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 14px;
+      line-height: 1.45;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+      display: none;
+    }
+
+    .toast.show {
+      display: block;
+    }
+
+    .toast-success {
+      background: #dcfce7;
+      color: #166534;
+      border: 1px solid #86efac;
+    }
+
+    .toast-error {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+    }
+
     .btn-sm {
       width: auto;
       padding: 12px 14px;
@@ -129,16 +181,16 @@
   </style>
 </head>
 <body>
+  <div class="toast toast-success" id="globalToast"></div>
   <div class="wrap">
     <div class="card">
       <h1>{% if mode == 'add' %}Tambah KC Token{% else %}Edit KC Token{% endif %}</h1>
       <p>Isi data KC token dan bearer token yang akan dipakai untuk user form.</p>
 
-      {% if error %}
-        <div class="error">{{ error }}</div>
-      {% endif %}
+      <div class="success" id="formSuccessBox"></div>
+      <div class="error" id="formErrorBox" {% if not error %}style="display:none;"{% endif %}>{{ error or '' }}</div>
 
-      <form method="post">
+      <form method="post" id="tokenForm">
         <div class="field">
           <label>Nama KC</label>
           <input
@@ -243,7 +295,7 @@
         </div>
 
         <div class="actions">
-          <button class="btn" type="submit">
+          <button class="btn" id="tokenSubmitButton" type="submit">
             {% if mode == 'add' %}Simpan KC Token{% else %}Update KC Token{% endif %}
           </button>
           <a class="btn btn-secondary" href="/admin">Kembali</a>
@@ -253,6 +305,44 @@
   </div>
 
   <script>
+    const tokenForm = document.getElementById('tokenForm');
+    const tokenSubmitButton = document.getElementById('tokenSubmitButton');
+    const globalToast = document.getElementById('globalToast');
+    let toastTimer = null;
+
+    function showToast(message, type = 'success') {
+      if (!message) {
+        globalToast.classList.remove('show');
+        globalToast.textContent = '';
+        return;
+      }
+      if (toastTimer) clearTimeout(toastTimer);
+      globalToast.className = 'toast ' + (type === 'error' ? 'toast-error' : 'toast-success');
+      globalToast.textContent = message;
+      globalToast.classList.add('show');
+      toastTimer = setTimeout(() => globalToast.classList.remove('show'), 2800);
+    }
+
+    function showFormStatus(message, type) {
+      const successBox = document.getElementById('formSuccessBox');
+      const errorBox = document.getElementById('formErrorBox');
+      successBox.style.display = 'none';
+      errorBox.style.display = 'none';
+      successBox.textContent = '';
+      errorBox.textContent = '';
+
+      if (!message) return;
+      if (type === 'success') {
+        successBox.textContent = message;
+        successBox.style.display = 'block';
+        showToast(message, 'success');
+      } else {
+        errorBox.textContent = message;
+        errorBox.style.display = 'block';
+        showToast(message, 'error');
+      }
+    }
+
     function generateToken(length = 16) {
       const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
       let randomPart = '';
@@ -302,6 +392,41 @@
       el.style.display = 'block';
       el.style.color = type === 'ok' ? '#166534' : type === 'error' ? '#991b1b' : '#64748b';
     }
+
+    tokenForm.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      showFormStatus('', '');
+      tokenForm.classList.add('is-busy');
+      tokenSubmitButton.disabled = true;
+      const originalText = tokenSubmitButton.textContent;
+      tokenSubmitButton.textContent = 'Menyimpan...';
+
+      try {
+        const formData = new FormData(tokenForm);
+        const res = await fetch(window.location.pathname, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: formData
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Gagal menyimpan KC token.');
+        }
+        showFormStatus(data.message || 'KC token berhasil disimpan.', 'success');
+        setTimeout(() => {
+          window.location.href = data.redirect_url || '/admin';
+        }, 500);
+      } catch (error) {
+        showFormStatus(error.message || 'Gagal menyimpan KC token.', 'error');
+      } finally {
+        tokenForm.classList.remove('is-busy');
+        tokenSubmitButton.disabled = false;
+        tokenSubmitButton.textContent = originalText;
+      }
+    });
   </script>
 </body>
 </html>

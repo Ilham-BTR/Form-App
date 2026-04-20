@@ -97,6 +97,10 @@
       background: #16a34a;
     }
 
+    .btn-warning {
+      background: #d97706;
+    }
+
     .stats {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -269,6 +273,42 @@
       line-height: 1.5;
     }
 
+    .is-loading {
+      opacity: 0.65;
+      pointer-events: none;
+    }
+
+    .toast {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 9999;
+      min-width: 260px;
+      max-width: min(420px, calc(100vw - 32px));
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 14px;
+      line-height: 1.45;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+      display: none;
+    }
+
+    .toast.show {
+      display: block;
+    }
+
+    .toast-success {
+      background: #dcfce7;
+      color: #166534;
+      border: 1px solid #86efac;
+    }
+
+    .toast-error {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+    }
+
     @media (max-width: 800px) {
       .stats {
         grid-template-columns: 1fr;
@@ -320,6 +360,8 @@
     <div class="alert alert-error">{{ token_import_error }}</div>
     {% endif %}
 
+    <div class="toast toast-success" id="dashboardAjaxMessage"></div>
+
     <div class="section" id="import-token">
       <h2>Import Detail KC Token</h2>
       <p class="section-desc">Upload file Excel atau CSV untuk tambah token baru dan update detail token yang sudah ada.</p>
@@ -357,15 +399,15 @@
     <div class="stats">
       <div class="card">
         <h3>Total KC Token</h3>
-        <div class="big">{{ total_tokens }}</div>
+        <div class="big" id="tokenStatsTotal">{{ total_tokens }}</div>
       </div>
       <div class="card">
         <h3>KC Token Aktif</h3>
-        <div class="big">{{ active_tokens }}</div>
+        <div class="big" id="tokenStatsActive">{{ active_tokens }}</div>
       </div>
       <div class="card">
         <h3>Total Submit Hari Ini</h3>
-        <div class="big">{{ total_submit_today }}</div>
+        <div class="big" id="tokenStatsSubmit">{{ total_submit_today }}</div>
       </div>
     </div>
 
@@ -373,7 +415,7 @@
       <h2>Daftar KC Token</h2>
       <p class="section-desc">Gunakan bagian ini untuk edit bearer token, ubah limit harian, atau aktif/nonaktifkan
         token yang dipakai oleh form submit utama.</p>
-      <form class="table-toolbar" method="get" action="/admin">
+      <form class="table-toolbar" id="tokenToolbarForm" method="get" action="/admin">
         <div class="toolbar-field">
           <label for="token_filter">Filter</label>
           <input class="input" id="token_filter" type="text" name="token_filter"
@@ -416,9 +458,14 @@
           </select>
         </div>
         <button class="btn btn-sm" type="submit">Terapkan</button>
-        <a class="btn btn-sm btn-secondary" href="/admin">Reset</a>
+        <a class="btn btn-sm btn-secondary" id="tokenToolbarReset" href="/admin">Reset</a>
       </form>
-      <div class="hint">Menampilkan {{ token_visible_count }} dari {{ token_filtered_count }} token hasil filter.</div>
+      <div class="row-actions" style="margin-bottom: 12px;">
+        <form class="inline" id="resetAllUsageTodayForm" method="post" action="/admin/token/reset-usage-today">
+          <button class="btn btn-sm btn-warning" type="submit">Reset Semua Terpakai Hari Ini</button>
+        </form>
+      </div>
+      <div class="hint" id="tokenFilterHint">Menampilkan {{ token_visible_count }} dari {{ token_filtered_count }} token hasil filter.</div>
       <table>
         <thead>
           <tr>
@@ -434,7 +481,7 @@
             <th>Aksi</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="tokenTableBody">
           {% for row in token_rows %}
           <tr>
             <td>{{ row.kc_name }}</td>
@@ -454,17 +501,20 @@
             </td>
             <td>
               <div class="row-actions">
-                <button class="btn btn-sm btn-refresh" onclick="refreshBearerToken(this, '{{ row.kc_token }}')">Refresh Token</button>
+                <button class="btn btn-sm btn-refresh" type="button" data-action="refresh" data-kc-token="{{ row.kc_token }}">Refresh Token</button>
                 <a class="btn btn-sm btn-secondary" href="/admin/token/{{ row.kc_token }}/edit">Edit</a>
 
-                <form class="inline" method="post" action="/admin/token/{{ row.kc_token }}/toggle">
+                <form class="inline" method="post" action="/admin/token/{{ row.kc_token }}/reset-usage-today" data-action="reset-usage" data-kc-token="{{ row.kc_token }}">
+                  <button class="btn btn-sm btn-warning" type="submit">Reset Hari Ini</button>
+                </form>
+
+                <form class="inline" method="post" action="/admin/token/{{ row.kc_token }}/toggle" data-action="toggle" data-kc-token="{{ row.kc_token }}">
                   <button class="btn btn-sm btn-muted" type="submit">
                     {% if row.is_active == 1 %}Nonaktifkan{% else %}Aktifkan{% endif %}
                   </button>
                 </form>
 
-                <form class="inline" method="post" action="/admin/token/{{ row.kc_token }}/delete"
-                  onsubmit="return confirm('Hapus KC token ini?');">
+                <form class="inline" method="post" action="/admin/token/{{ row.kc_token }}/delete" data-action="delete" data-kc-token="{{ row.kc_token }}">
                   <button class="btn btn-sm btn-danger" type="submit">Hapus</button>
                 </form>
               </div>
@@ -481,9 +531,9 @@
     </div>
 
     <div class="section">
-      <h2>Usage ({{ usage_date }})</h2>
+      <h2>Usage (<span id="usageDateLabel">{{ usage_date }}</span>)</h2>
       <p class="section-desc">Ringkasan pemakaian token untuk submit form utama.</p>
-      <form class="table-toolbar" method="get" action="/admin">
+      <form class="table-toolbar" id="usageToolbarForm" method="get" action="/admin">
         <input type="hidden" name="token_filter" value="{{ selected_token_filter }}">
         <input type="hidden" name="token_status_filter" value="{{ selected_token_status_filter }}">
         <input type="hidden" name="token_sort_by" value="{{ selected_token_sort_by }}">
@@ -498,8 +548,8 @@
           <input class="input" type="date" id="usage_date_to" name="usage_date_to" value="{{ selected_usage_date_to }}">
         </div>
         <button class="btn btn-sm" type="submit">Terapkan</button>
-        <a class="btn btn-sm btn-secondary" href="/admin">Reset</a>
-        <a class="btn btn-sm btn-secondary" href="/admin/usage/export?date_from={{ selected_usage_date_from }}&date_to={{ selected_usage_date_to }}">Export Excel</a>
+        <a class="btn btn-sm btn-secondary" id="usageToolbarReset" href="/admin">Reset</a>
+        <a class="btn btn-sm btn-secondary" id="usageExportLink" href="/admin/usage/export?date_from={{ selected_usage_date_from }}&date_to={{ selected_usage_date_to }}">Export Excel</a>
       </form>
       <table>
         <thead>
@@ -516,7 +566,7 @@
             <th>Status</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="usageTableBody">
           {% for row in usage_rows %}
           <tr>
             <td>{{ row.kc_name }}</td>
@@ -584,30 +634,314 @@
   </div>
 
   <script>
-    async function refreshBearerToken(btn, kcToken) {
-      if (!confirm('Refresh bearer token untuk KC "' + kcToken + '"?\nProses ini akan login ulang menggunakan username & password yang tersimpan.')) return;
-      const orig = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = '...';
+    const tokenToolbarForm = document.getElementById('tokenToolbarForm');
+    const usageToolbarForm = document.getElementById('usageToolbarForm');
+    const tokenTableBody = document.getElementById('tokenTableBody');
+    const usageTableBody = document.getElementById('usageTableBody');
+    const tokenFilterHint = document.getElementById('tokenFilterHint');
+    const usageDateLabel = document.getElementById('usageDateLabel');
+    const usageExportLink = document.getElementById('usageExportLink');
+    const ajaxMessage = document.getElementById('dashboardAjaxMessage');
+    const resetAllUsageTodayForm = document.getElementById('resetAllUsageTodayForm');
+    let toastTimer = null;
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function setLoading(isLoading) {
+      [tokenToolbarForm, usageToolbarForm, tokenTableBody, usageTableBody, resetAllUsageTodayForm]
+        .filter(Boolean)
+        .forEach((el) => el.classList.toggle('is-loading', isLoading));
+    }
+
+    function showMessage(text, isError = false) {
+      if (!text) {
+        ajaxMessage.className = 'toast ' + (isError ? 'toast-error' : 'toast-success');
+        ajaxMessage.classList.remove('show');
+        ajaxMessage.textContent = '';
+        return;
+      }
+      if (toastTimer) clearTimeout(toastTimer);
+      ajaxMessage.className = 'toast ' + (isError ? 'toast-error' : 'toast-success');
+      ajaxMessage.textContent = text;
+      ajaxMessage.classList.add('show');
+      toastTimer = setTimeout(() => {
+        ajaxMessage.classList.remove('show');
+      }, 2800);
+    }
+
+    function syncUsageHiddenFields() {
+      const mappings = ['token_filter', 'token_status_filter', 'token_sort_by', 'token_sort_dir', 'token_rows'];
+      mappings.forEach((name) => {
+        const tokenInput = tokenToolbarForm.elements[name];
+        const usageInput = usageToolbarForm.elements[name];
+        if (tokenInput && usageInput) usageInput.value = tokenInput.value;
+      });
+    }
+
+    function buildDashboardQuery() {
+      syncUsageHiddenFields();
+      const params = new URLSearchParams();
+      ['token_filter', 'token_status_filter', 'token_sort_by', 'token_sort_dir', 'token_rows'].forEach((name) => {
+        const value = tokenToolbarForm.elements[name]?.value ?? '';
+        if (value) params.set(name, value);
+      });
+      ['usage_date_from', 'usage_date_to'].forEach((name) => {
+        const value = usageToolbarForm.elements[name]?.value ?? '';
+        if (value) params.set(name, value);
+      });
+      return params;
+    }
+
+    function updateUrl(params) {
+      const query = params.toString();
+      const nextUrl = query ? '/admin?' + query : '/admin';
+      window.history.replaceState({}, '', nextUrl);
+    }
+
+    function updateExportLink(params) {
+      const exportParams = new URLSearchParams();
+      const dateFrom = params.get('usage_date_from') || '';
+      const dateTo = params.get('usage_date_to') || '';
+      if (dateFrom) exportParams.set('date_from', dateFrom);
+      if (dateTo) exportParams.set('date_to', dateTo);
+      usageExportLink.href = '/admin/usage/export' + (exportParams.toString() ? '?' + exportParams.toString() : '');
+    }
+
+    function renderTokenRows(rows) {
+      if (!rows.length) {
+        tokenTableBody.innerHTML = '<tr><td colspan="10">Belum ada KC token.</td></tr>';
+        return;
+      }
+
+      tokenTableBody.innerHTML = rows.map((row) => {
+        const statusBadge = row.is_active === 1
+          ? '<span class="badge badge-active">Aktif</span>'
+          : '<span class="badge badge-inactive">Nonaktif</span>';
+        const toggleLabel = row.is_active === 1 ? 'Nonaktifkan' : 'Aktifkan';
+        const tokenUrl = '/admin/token/' + encodeURIComponent(row.kc_token);
+        return `
+          <tr>
+            <td>${escapeHtml(row.kc_name)}</td>
+            <td>${escapeHtml(row.token_area)}</td>
+            <td><code>${escapeHtml(row.kc_token)}</code></td>
+            <td>${escapeHtml(row.kc_username)}</td>
+            <td><code>${escapeHtml(row.kc_password)}</code></td>
+            <td><code>${escapeHtml(row.bearer_token_masked)}</code></td>
+            <td>${escapeHtml(row.daily_limit)}</td>
+            <td>${escapeHtml(row.total_submit)}</td>
+            <td>${statusBadge}</td>
+            <td>
+              <div class="row-actions">
+                <button class="btn btn-sm btn-refresh" type="button" data-action="refresh" data-kc-token="${escapeHtml(row.kc_token)}">Refresh Token</button>
+                <a class="btn btn-sm btn-secondary" href="${tokenUrl}/edit">Edit</a>
+                <form class="inline" method="post" action="${tokenUrl}/reset-usage-today" data-action="reset-usage" data-kc-token="${escapeHtml(row.kc_token)}">
+                  <button class="btn btn-sm btn-warning" type="submit">Reset Hari Ini</button>
+                </form>
+                <form class="inline" method="post" action="${tokenUrl}/toggle" data-action="toggle" data-kc-token="${escapeHtml(row.kc_token)}">
+                  <button class="btn btn-sm btn-muted" type="submit">${toggleLabel}</button>
+                </form>
+                <form class="inline" method="post" action="${tokenUrl}/delete" data-action="delete" data-kc-token="${escapeHtml(row.kc_token)}">
+                  <button class="btn btn-sm btn-danger" type="submit">Hapus</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderUsageRows(rows) {
+      if (!rows.length) {
+        usageTableBody.innerHTML = '<tr><td colspan="10">Belum ada data usage.</td></tr>';
+        return;
+      }
+
+      usageTableBody.innerHTML = rows.map((row) => {
+        const remaining = Math.max(0, Number(row.daily_limit || 0) - Number(row.total_submit || 0));
+        const statusBadge = row.is_active === 1
+          ? '<span class="badge badge-active">Aktif</span>'
+          : '<span class="badge badge-inactive">Nonaktif</span>';
+        return `
+          <tr>
+            <td>${escapeHtml(row.kc_name)}</td>
+            <td>${escapeHtml(row.token_area)}</td>
+            <td><code>${escapeHtml(row.kc_token)}</code></td>
+            <td>${escapeHtml(row.kc_username)}</td>
+            <td><code>${escapeHtml(row.kc_password)}</code></td>
+            <td><code>${escapeHtml(row.bearer_token_masked)}</code></td>
+            <td>${escapeHtml(row.total_submit)}</td>
+            <td>${escapeHtml(row.daily_limit)}</td>
+            <td>${remaining}</td>
+            <td>${statusBadge}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderDashboard(data, params) {
+      document.getElementById('tokenStatsTotal').textContent = data.total_tokens;
+      document.getElementById('tokenStatsActive').textContent = data.active_tokens;
+      document.getElementById('tokenStatsSubmit').textContent = data.total_submit_today;
+
+      tokenToolbarForm.elements.token_filter.value = data.selected_token_filter || '';
+      tokenToolbarForm.elements.token_status_filter.value = data.selected_token_status_filter || '';
+      tokenToolbarForm.elements.token_sort_by.value = data.selected_token_sort_by || 'kc_name';
+      tokenToolbarForm.elements.token_sort_dir.value = data.selected_token_sort_dir || 'asc';
+      tokenToolbarForm.elements.token_rows.value = data.selected_token_rows || '10';
+
+      usageToolbarForm.elements.usage_date_from.value = data.selected_usage_date_from || '';
+      usageToolbarForm.elements.usage_date_to.value = data.selected_usage_date_to || '';
+      syncUsageHiddenFields();
+
+      tokenFilterHint.textContent = `Menampilkan ${data.token_visible_count} dari ${data.token_filtered_count} token hasil filter.`;
+      usageDateLabel.textContent = data.usage_date;
+      renderTokenRows(data.token_rows || []);
+      renderUsageRows(data.usage_rows || []);
+      updateExportLink(params);
+    }
+
+    async function refreshDashboardData(options = {}) {
+      const { message = '', isError = false } = options;
+      const params = buildDashboardQuery();
+      setLoading(true);
       try {
-        const res = await fetch('/admin/token/' + encodeURIComponent(kcToken) + '/refresh-bearer', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
+        const res = await fetch('/admin/data?' + params.toString(), {
+          headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          }
         });
         const data = await res.json();
-        if (data.success) {
-          alert('Bearer token berhasil diperbarui (source: ' + data.token_source + ').');
-          location.reload();
-        } else {
-          alert('Gagal: ' + (data.error || 'Unknown error'));
-        }
-      } catch (e) {
-        alert('Error: ' + e.message);
+        if (!res.ok) throw new Error(data.error || 'Gagal memuat data dashboard.');
+        renderDashboard(data, params);
+        updateUrl(params);
+        showMessage(message, isError);
+      } catch (err) {
+        showMessage(err.message || 'Terjadi error saat memuat dashboard.', true);
       } finally {
-        btn.disabled = false;
-        btn.textContent = orig;
+        setLoading(false);
       }
     }
+
+    async function postJson(url, button) {
+      const originalText = button ? button.textContent : '';
+      if (button) {
+        button.disabled = true;
+        button.textContent = '...';
+      }
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Proses gagal.');
+        return data;
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.textContent = originalText;
+        }
+      }
+    }
+
+    async function handleRefreshToken(button, kcToken) {
+      if (!confirm('Refresh bearer token untuk KC "' + kcToken + '"?\nProses ini akan login ulang menggunakan username & password yang tersimpan.')) return;
+      try {
+        const data = await postJson('/admin/token/' + encodeURIComponent(kcToken) + '/refresh-bearer', button);
+        await refreshDashboardData({ message: 'Bearer token berhasil diperbarui (source: ' + data.token_source + ').' });
+      } catch (err) {
+        showMessage(err.message || 'Gagal refresh bearer token.', true);
+      }
+    }
+
+    tokenToolbarForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      refreshDashboardData();
+    });
+
+    usageToolbarForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      refreshDashboardData();
+    });
+
+    document.getElementById('tokenToolbarReset').addEventListener('click', (event) => {
+      event.preventDefault();
+      tokenToolbarForm.reset();
+      tokenToolbarForm.elements.token_filter.value = '';
+      tokenToolbarForm.elements.token_status_filter.value = '';
+      tokenToolbarForm.elements.token_sort_by.value = 'kc_name';
+      tokenToolbarForm.elements.token_sort_dir.value = 'asc';
+      tokenToolbarForm.elements.token_rows.value = '10';
+      refreshDashboardData();
+    });
+
+    document.getElementById('usageToolbarReset').addEventListener('click', (event) => {
+      event.preventDefault();
+      usageToolbarForm.elements.usage_date_from.value = '';
+      usageToolbarForm.elements.usage_date_to.value = '';
+      refreshDashboardData();
+    });
+
+    resetAllUsageTodayForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!confirm('Reset semua nilai Terpakai Hari Ini ke 0?')) return;
+      const button = resetAllUsageTodayForm.querySelector('button[type="submit"]');
+      try {
+        const data = await postJson(resetAllUsageTodayForm.action, button);
+        await refreshDashboardData({ message: `Reset selesai. ${data.reset_count} token di-nolkan untuk ${data.usage_date}.` });
+      } catch (err) {
+        showMessage(err.message || 'Gagal reset semua usage hari ini.', true);
+      }
+    });
+
+    tokenTableBody.addEventListener('click', (event) => {
+      const refreshButton = event.target.closest('button[data-action="refresh"]');
+      if (refreshButton) {
+        handleRefreshToken(refreshButton, refreshButton.dataset.kcToken || '');
+      }
+    });
+
+    tokenTableBody.addEventListener('submit', async (event) => {
+      const form = event.target.closest('form[data-action]');
+      if (!form) return;
+      event.preventDefault();
+
+      const action = form.dataset.action;
+      const kcToken = form.dataset.kcToken || '';
+      if (action === 'reset-usage' && !confirm(`Reset Terpakai Hari Ini untuk token "${kcToken}" ke 0?`)) return;
+      if (action === 'delete' && !confirm(`Hapus KC token "${kcToken}"?`)) return;
+
+      const button = form.querySelector('button[type="submit"]');
+      try {
+        const data = await postJson(form.action, button);
+        let message = 'Perubahan disimpan.';
+        if (action === 'reset-usage') message = `Terpakai Hari Ini untuk ${kcToken} berhasil direset.`;
+        if (action === 'toggle') message = `Status token ${kcToken} berhasil diperbarui.`;
+        if (action === 'delete') message = `KC token ${data.kc_token || kcToken} berhasil dihapus.`;
+        await refreshDashboardData({ message });
+      } catch (err) {
+        showMessage(err.message || 'Aksi token gagal diproses.', true);
+      }
+    });
+
+    ['token_status_filter', 'token_sort_by', 'token_sort_dir', 'token_rows'].forEach((name) => {
+      tokenToolbarForm.elements[name].addEventListener('change', () => refreshDashboardData());
+    });
+
+    ['usage_date_from', 'usage_date_to'].forEach((name) => {
+      usageToolbarForm.elements[name].addEventListener('change', () => refreshDashboardData());
+    });
   </script>
 </body>
 

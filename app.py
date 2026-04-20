@@ -323,6 +323,12 @@ def admin_required(view_func):
     return wrapper
 
 
+def wants_json_response():
+    accept = (request.headers.get("Accept") or "").lower()
+    requested_with = (request.headers.get("X-Requested-With") or "").lower()
+    return "application/json" in accept or requested_with == "xmlhttprequest"
+
+
 def get_now_db_string():
     return get_now_wib().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -1929,6 +1935,41 @@ def increment_kc_token_usage(kc_token, usage_date, daily_limit=None):
     conn.close()
 
 
+def reset_kc_token_usage_today(kc_token, usage_date=None):
+    target_date = usage_date or get_today_wib()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO kc_token_usage (kc_token, usage_date, total_submit)
+        VALUES (%s, %s, 0)
+        ON CONFLICT (kc_token, usage_date)
+        DO UPDATE SET total_submit = 0
+    """, (kc_token, target_date))
+    conn.commit()
+    conn.close()
+    return target_date
+
+
+def reset_all_kc_token_usage_today(usage_date=None):
+    target_date = usage_date or get_today_wib()
+    token_rows = get_all_kc_tokens()
+    if not token_rows:
+        return 0, target_date
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    for row in token_rows:
+        cur.execute("""
+            INSERT INTO kc_token_usage (kc_token, usage_date, total_submit)
+            VALUES (%s, %s, 0)
+            ON CONFLICT (kc_token, usage_date)
+            DO UPDATE SET total_submit = 0
+        """, (row["kc_token"], target_date))
+    conn.commit()
+    conn.close()
+    return len(token_rows), target_date
+
+
 def get_remaining_quota(kc_token, daily_limit):
     today = get_today_wib()
     used = _get_effective_usage(kc_token, today, daily_limit)
@@ -2977,9 +3018,13 @@ def admin_login():
         if username == ADMIN_PAGE_USERNAME and password == ADMIN_PAGE_PASSWORD:
             session["is_admin_logged_in"] = True
             session["admin_page_username"] = username
+            if wants_json_response():
+                return jsonify({"success": True, "redirect_url": url_for("admin_dashboard")})
             return redirect(url_for("admin_dashboard"))
         else:
             error = "Username atau password admin salah."
+            if wants_json_response():
+                return jsonify({"success": False, "error": error}), 401
 
     return render_template("admin_login.html", error=error)
 
@@ -2991,12 +3036,11 @@ def admin_logout():
     return redirect(url_for("admin_login"))
 
 
-@app.route("/admin")
-@admin_required
-def admin_dashboard():
+def build_admin_dashboard_context(args):
     token_rows = get_all_kc_tokens()
+
     def parse_date_param(key):
-        val = (request.args.get(key) or "").strip()
+        val = (args.get(key) or "").strip()
         if val:
             try:
                 datetime.strptime(val, "%Y-%m-%d")
@@ -3013,14 +3057,14 @@ def admin_dashboard():
     )
     recent_submissions = get_recent_submission_attempts(limit=10)
 
-    selected_token_filter = (request.args.get("token_filter") or "").strip()
-    selected_token_status_filter = (request.args.get("token_status_filter") or "").strip().lower()
+    selected_token_filter = (args.get("token_filter") or "").strip()
+    selected_token_status_filter = (args.get("token_status_filter") or "").strip().lower()
     if selected_token_status_filter not in ("", "aktif", "nonaktif"):
         selected_token_status_filter = ""
-    selected_token_rows = normalize_token_rows_param(request.args.get("token_rows", "10"))
+    selected_token_rows = normalize_token_rows_param(args.get("token_rows", "10"))
     selected_token_sort_by, selected_token_sort_dir = normalize_token_sort(
-        request.args.get("token_sort_by", "kc_name"),
-        request.args.get("token_sort_dir", "asc"),
+        args.get("token_sort_by", "kc_name"),
+        args.get("token_sort_dir", "asc"),
     )
 
     total_tokens = len(token_rows)
@@ -3066,28 +3110,121 @@ def admin_dashboard():
         })
 
     submission_counts = get_submission_status_counts()
-    return render_template(
-        "admin_dashboard.html",
-        token_rows=masked_token_rows,
-        usage_rows=masked_usage_rows,
-        usage_date=usage_date,
-        total_tokens=total_tokens,
-        active_tokens=active_tokens,
-        total_submit_today=total_submit_today,
-        submission_counts=submission_counts,
-        recent_submissions=recent_submissions,
-        token_import_message=request.args.get("token_import_message", ""),
-        token_import_error=request.args.get("token_import_error", ""),
-        selected_token_filter=selected_token_filter,
-        selected_token_status_filter=selected_token_status_filter,
-        selected_token_rows=selected_token_rows,
-        selected_token_sort_by=selected_token_sort_by,
-        selected_token_sort_dir=selected_token_sort_dir,
-        token_filtered_count=token_filtered_count,
-        token_visible_count=len(masked_token_rows),
-        selected_usage_date_from=selected_usage_date_from,
-        selected_usage_date_to=selected_usage_date_to,
+    return {
+        "token_rows": masked_token_rows,
+        "usage_rows": masked_usage_rows,
+        "usage_date": usage_date,
+        "total_tokens": total_tokens,
+        "active_tokens": active_tokens,
+        "total_submit_today": total_submit_today,
+        "submission_counts": submission_counts,
+        "recent_submissions": recent_submissions,
+        "token_import_message": args.get("token_import_message", ""),
+        "token_import_error": args.get("token_import_error", ""),
+        "selected_token_filter": selected_token_filter,
+        "selected_token_status_filter": selected_token_status_filter,
+        "selected_token_rows": selected_token_rows,
+        "selected_token_sort_by": selected_token_sort_by,
+        "selected_token_sort_dir": selected_token_sort_dir,
+        "token_filtered_count": token_filtered_count,
+        "token_visible_count": len(masked_token_rows),
+        "selected_usage_date_from": selected_usage_date_from,
+        "selected_usage_date_to": selected_usage_date_to,
+    }
+
+
+def build_admin_submissions_context(args):
+    selected_status = (args.get("status") or "").strip()
+    selected_kc_token = (args.get("kc_token") or "").strip()
+    selected_phone = (args.get("phone_number") or "").strip()
+    selected_date_from = normalize_submission_date_filter(args.get("date_from"))
+    selected_date_to = normalize_submission_date_filter(args.get("date_to"))
+    selected_limit_raw = (args.get("limit") or "100").strip()
+    requested_limit = normalize_submission_log_limit(selected_limit_raw, default=100)
+    display_limit = 50 if requested_limit is None else min(requested_limit, 50)
+
+    rows = get_recent_submission_attempts(
+        limit=display_limit,
+        status_filter=selected_status,
+        kc_token_filter=selected_kc_token,
+        phone_filter=selected_phone,
+        date_from=selected_date_from,
+        date_to=selected_date_to,
     )
+    counts = get_submission_status_counts()
+
+    direct_success_count = 0
+    retried_success_count = 0
+    retried_failed_count = 0
+    retried_likely_success_count = 0
+    invalid_count = 0
+
+    for row in rows:
+        attempt_count = int(row.get("attempt_count") or 0)
+        row["is_retried"] = attempt_count > 1
+        if row["status_local"] == "SUCCESS":
+            if row["is_retried"]:
+                retried_success_count += 1
+                row["retry_label"] = "Retried Success"
+            else:
+                direct_success_count += 1
+                row["retry_label"] = "Direct Success"
+        elif row["status_local"] == "LIKELY_SUCCESS":
+            if row["is_retried"]:
+                retried_likely_success_count += 1
+                row["retry_label"] = "Retried Likely"
+            else:
+                row["retry_label"] = "Likely Success"
+        elif row["status_local"] == "FAILED":
+            if row["is_retried"]:
+                retried_failed_count += 1
+                row["retry_label"] = "Retried Failed"
+            else:
+                row["retry_label"] = "Failed"
+        elif row["status_local"] == "INVALID":
+            invalid_count += 1
+            row["retry_label"] = "Invalid"
+        else:
+            row["retry_label"] = "Pending"
+
+    total_rows = len(rows)
+    retried_total = sum(1 for row in rows if row.get("is_retried"))
+    retry_rate = round((retried_total / total_rows) * 100, 1) if total_rows else 0
+
+    retry_stats = {
+        "direct_success_count": direct_success_count,
+        "retried_success_count": retried_success_count,
+        "retried_likely_success_count": retried_likely_success_count,
+        "retried_failed_count": retried_failed_count,
+        "invalid_count": invalid_count,
+        "retried_total": retried_total,
+        "retry_rate": retry_rate,
+    }
+
+    return {
+        "rows": rows,
+        "counts": counts,
+        "retry_stats": retry_stats,
+        "selected_status": selected_status,
+        "selected_kc_token": selected_kc_token,
+        "selected_phone": selected_phone,
+        "selected_date_from": selected_date_from,
+        "selected_date_to": selected_date_to,
+        "selected_limit": "all" if requested_limit is None else str(requested_limit),
+        "limit_options": SUBMISSION_LOG_LIMIT_OPTIONS,
+    }
+
+
+@app.route("/admin")
+@admin_required
+def admin_dashboard():
+    return render_template("admin_dashboard.html", **build_admin_dashboard_context(request.args))
+
+
+@app.route("/admin/data")
+@admin_required
+def admin_dashboard_data():
+    return jsonify(build_admin_dashboard_context(request.args))
 
 
 @app.route("/admin/token/add", methods=["GET", "POST"])
@@ -3131,6 +3268,13 @@ def admin_add_token():
                 kc_username=kc_username,
                 kc_password=kc_password,
             )
+            if wants_json_response():
+                return jsonify({
+                    "success": True,
+                    "message": "KC token berhasil disimpan.",
+                    "redirect_url": url_for("admin_dashboard"),
+                    "kc_token": kc_token,
+                })
             return redirect(url_for("admin_dashboard"))
 
         except Exception as e:
@@ -3145,6 +3289,8 @@ def admin_add_token():
                 "bearer_token": bearer_token,
                 "daily_limit": daily_limit if daily_limit else 40,
             }
+            if wants_json_response():
+                return jsonify({"success": False, "error": error, "token_data": token_data}), 400
             return render_template("admin_token_form.html", error=error, mode="add", token_data=token_data)
 
     return render_template("admin_token_form.html", error=error, mode="add", token_data=None)
@@ -3197,6 +3343,13 @@ def admin_edit_token(kc_token):
                 kc_username=kc_username,
                 kc_password=kc_password,
             )
+            if wants_json_response():
+                return jsonify({
+                    "success": True,
+                    "message": "KC token berhasil diperbarui.",
+                    "redirect_url": url_for("admin_dashboard"),
+                    "kc_token": new_kc_token,
+                })
             return redirect(url_for("admin_dashboard"))
 
         except Exception as e:
@@ -3212,6 +3365,8 @@ def admin_edit_token(kc_token):
                 "daily_limit": daily_limit,
                 "is_active": token_data["is_active"],
             }
+            if wants_json_response():
+                return jsonify({"success": False, "error": error, "token_data": token_data}), 400
 
     return render_template("admin_token_form.html", error=error, mode="edit", token_data=token_data)
 
@@ -3349,7 +3504,16 @@ def admin_toggle_token(kc_token):
         current_user_token = session.get("kc_token")
         if current_user_token == kc_token:
             clear_user_session()
+        if wants_json_response():
+            updated = get_kc_token_detail(kc_token)
+            return jsonify({
+                "success": True,
+                "kc_token": kc_token,
+                "is_active": updated["is_active"] if updated else 0,
+            })
 
+    if wants_json_response():
+        return jsonify({"success": False, "error": "KC token tidak ditemukan."}), 404
     return redirect(url_for("admin_dashboard"))
 
 
@@ -3363,8 +3527,40 @@ def admin_delete_token_route(kc_token):
 
         if current_user_token == kc_token:
             clear_user_session()
+        if wants_json_response():
+            return jsonify({"success": True, "kc_token": kc_token})
 
+    if wants_json_response():
+        return jsonify({"success": False, "error": "KC token tidak ditemukan."}), 404
     return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/token/<path:kc_token>/reset-usage-today", methods=["POST"])
+@admin_required
+def admin_reset_token_usage_today(kc_token):
+    token_data = get_kc_token_detail(kc_token)
+    if token_data:
+        target_date = reset_kc_token_usage_today(kc_token)
+        current_user_token = (session.get("kc_token") or "").strip()
+        if current_user_token == kc_token:
+            session["used_today"] = 0
+        if wants_json_response():
+            return jsonify({"success": True, "kc_token": kc_token, "usage_date": target_date})
+    if wants_json_response():
+        return jsonify({"success": False, "error": "KC token tidak ditemukan."}), 404
+    return redirect(request.referrer or url_for("admin_dashboard"))
+
+
+@app.route("/admin/token/reset-usage-today", methods=["POST"])
+@admin_required
+def admin_reset_all_token_usage_today():
+    reset_count, target_date = reset_all_kc_token_usage_today()
+    current_user_token = (session.get("kc_token") or "").strip()
+    if current_user_token:
+        session["used_today"] = 0
+    if wants_json_response():
+        return jsonify({"success": True, "reset_count": reset_count, "usage_date": target_date})
+    return redirect(request.referrer or url_for("admin_dashboard"))
 
 
 @app.route("/admin/customers")
@@ -3527,86 +3723,13 @@ def admin_customers_delete_unused():
 @app.route("/admin/submissions")
 @admin_required
 def admin_submissions():
-    selected_status = (request.args.get("status") or "").strip()
-    selected_kc_token = (request.args.get("kc_token") or "").strip()
-    selected_phone = (request.args.get("phone_number") or "").strip()
-    selected_date_from = normalize_submission_date_filter(request.args.get("date_from"))
-    selected_date_to = normalize_submission_date_filter(request.args.get("date_to"))
-    selected_limit_raw = (request.args.get("limit") or "100").strip()
-    requested_limit = normalize_submission_log_limit(selected_limit_raw, default=100)
-    display_limit = 50 if requested_limit is None else min(requested_limit, 50)
+    return render_template("admin_submit_logs.html", **build_admin_submissions_context(request.args))
 
-    rows = get_recent_submission_attempts(
-        limit=display_limit,
-        status_filter=selected_status,
-        kc_token_filter=selected_kc_token,
-        phone_filter=selected_phone,
-        date_from=selected_date_from,
-        date_to=selected_date_to,
-    )
-    counts = get_submission_status_counts()
 
-    direct_success_count = 0
-    retried_success_count = 0
-    retried_failed_count = 0
-    retried_likely_success_count = 0
-    invalid_count = 0
-
-    for row in rows:
-        attempt_count = int(row.get("attempt_count") or 0)
-        row["is_retried"] = attempt_count > 1
-        if row["status_local"] == "SUCCESS":
-            if row["is_retried"]:
-                retried_success_count += 1
-                row["retry_label"] = "Retried Success"
-            else:
-                direct_success_count += 1
-                row["retry_label"] = "Direct Success"
-        elif row["status_local"] == "LIKELY_SUCCESS":
-            if row["is_retried"]:
-                retried_likely_success_count += 1
-                row["retry_label"] = "Retried Likely"
-            else:
-                row["retry_label"] = "Likely Success"
-        elif row["status_local"] == "FAILED":
-            if row["is_retried"]:
-                retried_failed_count += 1
-                row["retry_label"] = "Retried Failed"
-            else:
-                row["retry_label"] = "Failed"
-        elif row["status_local"] == "INVALID":
-            invalid_count += 1
-            row["retry_label"] = "Invalid"
-        else:
-            row["retry_label"] = "Pending"
-
-    total_rows = len(rows)
-    retried_total = sum(1 for row in rows if row.get("is_retried"))
-    retry_rate = round((retried_total / total_rows) * 100, 1) if total_rows else 0
-
-    retry_stats = {
-        "direct_success_count": direct_success_count,
-        "retried_success_count": retried_success_count,
-        "retried_likely_success_count": retried_likely_success_count,
-        "retried_failed_count": retried_failed_count,
-        "invalid_count": invalid_count,
-        "retried_total": retried_total,
-        "retry_rate": retry_rate,
-    }
-
-    return render_template(
-        "admin_submit_logs.html",
-        rows=rows,
-        counts=counts,
-        retry_stats=retry_stats,
-        selected_status=selected_status,
-        selected_kc_token=selected_kc_token,
-        selected_phone=selected_phone,
-        selected_date_from=selected_date_from,
-        selected_date_to=selected_date_to,
-        selected_limit="all" if requested_limit is None else str(requested_limit),
-        limit_options=SUBMISSION_LOG_LIMIT_OPTIONS,
-    )
+@app.route("/admin/submissions/data")
+@admin_required
+def admin_submissions_data():
+    return jsonify(build_admin_submissions_context(request.args))
 
 
 @app.route("/admin/submissions/export")

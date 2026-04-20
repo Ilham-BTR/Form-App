@@ -45,12 +45,18 @@
 
     .alert { border-radius: 10px; padding: 12px 14px; font-size: 13px; margin-top: 12px; display: none; }
     .alert-error { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .is-busy { opacity: 0.7; pointer-events: none; }
+    .toast { position: fixed; top: 16px; right: 16px; z-index: 9999; min-width: 260px; max-width: min(420px, calc(100vw - 32px)); border-radius: 14px; padding: 12px 14px; font-size: 14px; line-height: 1.45; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18); display: none; }
+    .toast.show { display: block; }
+    .toast-success { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .toast-error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
 
     .spinner { display: inline-block; width: 13px; height: 13px; border: 2px solid #fff; border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 6px; }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
+<div class="toast toast-success" id="globalToast"></div>
 <div class="container">
 
   <div class="topbar">
@@ -124,8 +130,25 @@
 </div>
 
 <script>
+const globalToast = document.getElementById('globalToast');
+let toastTimer = null;
+
+function showToast(message, type = 'success') {
+  if (!message) {
+    globalToast.classList.remove('show');
+    globalToast.textContent = '';
+    return;
+  }
+  if (toastTimer) clearTimeout(toastTimer);
+  globalToast.className = 'toast ' + (type === 'error' ? 'toast-error' : 'toast-success');
+  globalToast.textContent = message;
+  globalToast.classList.add('show');
+  toastTimer = setTimeout(() => globalToast.classList.remove('show'), 2800);
+}
+
 async function doLogin() {
   const btn = document.getElementById('btn-login');
+  const section = btn.closest('.section');
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
   const type_of_web = document.getElementById('type_of_web').value.trim() || 'spgCMKT';
@@ -138,6 +161,7 @@ async function doLogin() {
 
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span>Memproses...';
+  if (section) section.classList.add('is-busy');
 
   try {
     const res = await fetch('/admin/single-login/token', {
@@ -160,9 +184,11 @@ async function doLogin() {
 
     if (data.token) document.getElementById('btn-copy').disabled = false;
     if (!data.success) showError(data.error || 'Login gagal.');
+    else showToast('Token berhasil diambil.', 'success');
   } catch (e) {
     showError('Gagal menghubungi server: ' + e.message);
   } finally {
+    if (section) section.classList.remove('is-busy');
     btn.disabled = false;
     btn.innerHTML = 'Login &amp; Ambil Token';
   }
@@ -182,6 +208,7 @@ function showError(msg) {
   const el = document.getElementById('error-box');
   el.textContent = msg;
   el.style.display = 'block';
+  showToast(msg, 'error');
 }
 
 function clearResults() {

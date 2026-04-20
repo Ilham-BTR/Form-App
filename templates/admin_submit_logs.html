@@ -40,6 +40,12 @@
     .response-cell { width: 360px; max-width: 360px; }
     .response-code { display: block; max-width: 360px; max-height: 170px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
     .muted { color: #64748b; }
+    .message { display: none; }
+    .is-loading { opacity: 0.65; pointer-events: none; }
+    .toast { position: fixed; top: 16px; right: 16px; z-index: 9999; min-width: 260px; max-width: min(420px, calc(100vw - 32px)); border-radius: 14px; padding: 12px 14px; font-size: 14px; line-height: 1.45; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18); display: none; }
+    .toast.show { display: block; }
+    .toast-success { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .toast-error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
     @media (max-width: 980px) { .stats { grid-template-columns: 1fr 1fr; } .filters { grid-template-columns: 1fr; } }
     @media (max-width: 640px) { .stats { grid-template-columns: 1fr; } }
   </style>
@@ -61,24 +67,26 @@
       Halaman ini mengambil data dari tabel <b>submission_attempts</b> di database lokal app kamu. Jadi kamu bisa audit kasus 401, retry, duplicate, dan hasil final per nomor.
     </div>
 
+    <div class="toast toast-error" id="submitLogsMessage"></div>
+
     <div class="stats">
-      <div class="card"><h3>Success</h3><div class="big">{{ counts.SUCCESS if counts else 0 }}</div></div>
-      <div class="card"><h3>Likely Success</h3><div class="big">{{ counts.LIKELY_SUCCESS if counts else 0 }}</div></div>
-      <div class="card"><h3>Invalid</h3><div class="big">{{ counts.INVALID if counts else 0 }}</div></div>
-      <div class="card"><h3>Failed</h3><div class="big">{{ counts.FAILED if counts else 0 }}</div></div>
-      <div class="card"><h3>Pending</h3><div class="big">{{ counts.PENDING if counts else 0 }}</div></div>
+      <div class="card"><h3>Success</h3><div class="big" id="countSuccess">{{ counts.SUCCESS if counts else 0 }}</div></div>
+      <div class="card"><h3>Likely Success</h3><div class="big" id="countLikely">{{ counts.LIKELY_SUCCESS if counts else 0 }}</div></div>
+      <div class="card"><h3>Invalid</h3><div class="big" id="countInvalid">{{ counts.INVALID if counts else 0 }}</div></div>
+      <div class="card"><h3>Failed</h3><div class="big" id="countFailed">{{ counts.FAILED if counts else 0 }}</div></div>
+      <div class="card"><h3>Pending</h3><div class="big" id="countPending">{{ counts.PENDING if counts else 0 }}</div></div>
     </div>
 
     <div class="stats">
-      <div class="card"><h3>Direct Success</h3><div class="big">{{ retry_stats.direct_success_count if retry_stats else 0 }}</div></div>
-      <div class="card"><h3>Retried Success</h3><div class="big">{{ retry_stats.retried_success_count if retry_stats else 0 }}</div></div>
-      <div class="card"><h3>Retried Failed</h3><div class="big">{{ retry_stats.retried_failed_count if retry_stats else 0 }}</div></div>
-      <div class="card"><h3>Invalid</h3><div class="big">{{ retry_stats.invalid_count if retry_stats else 0 }}</div></div>
-      <div class="card"><h3>Retry Rate</h3><div class="big">{{ retry_stats.retry_rate if retry_stats else 0 }}%</div></div>
+      <div class="card"><h3>Direct Success</h3><div class="big" id="retryDirect">{{ retry_stats.direct_success_count if retry_stats else 0 }}</div></div>
+      <div class="card"><h3>Retried Success</h3><div class="big" id="retrySuccess">{{ retry_stats.retried_success_count if retry_stats else 0 }}</div></div>
+      <div class="card"><h3>Retried Failed</h3><div class="big" id="retryFailed">{{ retry_stats.retried_failed_count if retry_stats else 0 }}</div></div>
+      <div class="card"><h3>Invalid</h3><div class="big" id="retryInvalid">{{ retry_stats.invalid_count if retry_stats else 0 }}</div></div>
+      <div class="card"><h3>Retry Rate</h3><div class="big" id="retryRate">{{ retry_stats.retry_rate if retry_stats else 0 }}%</div></div>
     </div>
 
     <div class="section" style="margin-bottom:18px;">
-      <form method="get" class="filters">
+      <form method="get" class="filters" id="submissionFiltersForm">
         <div>
           <label>KC Token</label>
           <input class="input" type="text" name="kc_token" value="{{ selected_kc_token }}" placeholder="Filter KC token">
@@ -117,7 +125,7 @@
         <div>
           <label>&nbsp;</label>
           <button class="btn" type="submit">Filter</button>
-          <button class="btn btn-secondary" type="submit" formaction="/admin/submissions/export">Export CSV</button>
+          <a class="btn btn-secondary" id="submissionExportLink" href="/admin/submissions/export">Export CSV</a>
         </div>
       </form>
     </div>
@@ -141,7 +149,7 @@
               <th class="response-cell">Response</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody id="submissionTableBody">
             {% for row in rows %}
             <tr>
               <td>
@@ -198,5 +206,157 @@
       </div>
     </div>
   </div>
+  <script>
+    const submissionFiltersForm = document.getElementById('submissionFiltersForm');
+    const submissionTableBody = document.getElementById('submissionTableBody');
+    const submissionExportLink = document.getElementById('submissionExportLink');
+    const submitLogsMessage = document.getElementById('submitLogsMessage');
+    let toastTimer = null;
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function badgeClass(status) {
+      if (status === 'SUCCESS') return 'badge-success';
+      if (status === 'LIKELY_SUCCESS') return 'badge-likely';
+      if (status === 'INVALID') return 'badge-invalid';
+      if (status === 'FAILED') return 'badge-failed';
+      return 'badge-pending';
+    }
+
+    function retryBadge(label) {
+      if (label === 'Direct Success') return '<span class="badge badge-direct">Direct Success</span>';
+      if (label === 'Retried Success') return '<span class="badge badge-retried-success">Retried Success</span>';
+      if (label === 'Retried Failed') return '<span class="badge badge-retried-failed">Retried Failed</span>';
+      if (label === 'Retried Likely') return '<span class="badge badge-retried-likely">Retried Likely</span>';
+      if (label === 'Invalid') return '<span class="badge badge-invalid">Invalid</span>';
+      return `<span class="badge badge-neutral">${escapeHtml(label || 'Pending')}</span>`;
+    }
+
+    function buildQuery() {
+      return new URLSearchParams(new FormData(submissionFiltersForm));
+    }
+
+    function updateExportLink(params) {
+      submissionExportLink.href = '/admin/submissions/export?' + params.toString();
+    }
+
+    function updateUrl(params) {
+      const query = params.toString();
+      window.history.replaceState({}, '', query ? '/admin/submissions?' + query : '/admin/submissions');
+    }
+
+    function showMessage(message) {
+      if (!message) {
+        submitLogsMessage.classList.remove('show');
+        submitLogsMessage.textContent = '';
+        return;
+      }
+      if (toastTimer) clearTimeout(toastTimer);
+      submitLogsMessage.className = 'toast toast-error';
+      submitLogsMessage.textContent = message;
+      submitLogsMessage.classList.add('show');
+      toastTimer = setTimeout(() => submitLogsMessage.classList.remove('show'), 2800);
+    }
+
+    function setLoading(isLoading) {
+      submissionFiltersForm.classList.toggle('is-loading', isLoading);
+      submissionTableBody.classList.toggle('is-loading', isLoading);
+    }
+
+    function updateStats(data) {
+      document.getElementById('countSuccess').textContent = data.counts?.SUCCESS ?? 0;
+      document.getElementById('countLikely').textContent = data.counts?.LIKELY_SUCCESS ?? 0;
+      document.getElementById('countInvalid').textContent = data.counts?.INVALID ?? 0;
+      document.getElementById('countFailed').textContent = data.counts?.FAILED ?? 0;
+      document.getElementById('countPending').textContent = data.counts?.PENDING ?? 0;
+      document.getElementById('retryDirect').textContent = data.retry_stats?.direct_success_count ?? 0;
+      document.getElementById('retrySuccess').textContent = data.retry_stats?.retried_success_count ?? 0;
+      document.getElementById('retryFailed').textContent = data.retry_stats?.retried_failed_count ?? 0;
+      document.getElementById('retryInvalid').textContent = data.retry_stats?.invalid_count ?? 0;
+      document.getElementById('retryRate').textContent = `${data.retry_stats?.retry_rate ?? 0}%`;
+    }
+
+    function renderRows(rows) {
+      if (!rows || rows.length === 0) {
+        submissionTableBody.innerHTML = '<tr><td colspan="10" class="muted">Belum ada data submit.</td></tr>';
+        return;
+      }
+
+      submissionTableBody.innerHTML = rows.map((row) => {
+        const summary = row.request_summary || {};
+        return `
+          <tr>
+            <td>
+              <div>${escapeHtml(row.created_at)}</div>
+              <div class="muted">Update: ${escapeHtml(row.updated_at)}</div>
+            </td>
+            <td><span class="badge ${badgeClass(row.status_local)}">${escapeHtml(row.status_local)}</span></td>
+            <td>${escapeHtml(row.final_status_code || '-')}</td>
+            <td>
+              <div>${escapeHtml(row.attempt_summary)}</div>
+              <div class="muted">${escapeHtml(row.attempt_count)} attempt</div>
+            </td>
+            <td>${retryBadge(row.retry_label)}</td>
+            <td>${escapeHtml(row.phone_number)}</td>
+            <td>${escapeHtml(row.kc_name)}</td>
+            <td><code>${escapeHtml(row.kc_token)}</code></td>
+            <td>
+              <div>Stage: ${escapeHtml(summary.stage || '-')}</div>
+              <div>Nama: ${escapeHtml(summary.customer_name || '-')}</div>
+              <div>Age: ${escapeHtml(summary.age_range || '-')}</div>
+              <div>BUMO: ${escapeHtml(summary.current_bumo || '-')}</div>
+              <div>KC Area: ${escapeHtml(summary.kc_area || '-')}</div>
+              <div>Beli: ${escapeHtml(summary.has_purchased || '-')}</div>
+              ${summary.non_purchase_reasons ? `<div>Alasan: ${escapeHtml(summary.non_purchase_reasons)}</div>` : ''}
+              ${summary.lighter ? `<div>Lighter: ${escapeHtml(summary.lighter)}</div>` : ''}
+            </td>
+            <td class="response-cell"><code class="response-code">${escapeHtml(row.final_response_text || '-')}</code></td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function refreshSubmissions() {
+      const params = buildQuery();
+      setLoading(true);
+      showMessage('');
+      updateExportLink(params);
+      try {
+        const res = await fetch('/admin/submissions/data?' + params.toString(), {
+          headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Gagal memuat data submit.');
+        updateStats(data);
+        renderRows(data.rows || []);
+        updateUrl(params);
+      } catch (error) {
+        showMessage(error.message || 'Gagal memuat data submit.');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    submissionFiltersForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      refreshSubmissions();
+    });
+
+    ['status', 'limit', 'date_from', 'date_to'].forEach((name) => {
+      submissionFiltersForm.elements[name].addEventListener('change', refreshSubmissions);
+    });
+
+    updateExportLink(buildQuery());
+  </script>
 </body>
 </html>

@@ -176,10 +176,17 @@
     }
 
     .message {
-      border-radius: 16px;
-      padding: 12px;
-      margin-bottom: 14px;
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 9999;
+      min-width: 260px;
+      max-width: min(420px, calc(100vw - 32px));
+      border-radius: 14px;
+      padding: 12px 14px;
       font-size: 14px;
+      line-height: 1.45;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
       display: none;
     }
 
@@ -190,11 +197,18 @@
     .message-error {
       background: #fee2e2;
       color: #991b1b;
+      border: 1px solid #fecaca;
     }
 
     .message-success {
       background: #dcfce7;
       color: #166534;
+      border: 1px solid #86efac;
+    }
+
+    .is-busy {
+      opacity: 0.7;
+      pointer-events: none;
     }
 
     .helper-box {
@@ -518,6 +532,7 @@
       const deleteUnusedButton = document.getElementById('deleteUnusedButton');
       const importIsActive = document.getElementById('import_is_active');
       const sortButtons = Array.from(document.querySelectorAll('.th-sort-btn'));
+      let toastTimer = null;
 
       let currentSortBy = '{{ selected_sort_by or "reserved_at" }}';
       let currentSortDir = '{{ selected_sort_dir or "desc" }}';
@@ -525,12 +540,21 @@
       function showMessage(text, isError = false) {
         messageBox.textContent = text || '';
         messageBox.className = 'message show ' + (isError ? 'message-error' : 'message-success');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          messageBox.className = 'message';
+          messageBox.textContent = '';
+        }, 2800);
       }
 
       function clearMessage() {
         messageBox.className = 'message';
         messageBox.textContent = '';
+      }
+
+      function setBusy(element, busy) {
+        if (!element) return;
+        element.classList.toggle('is-busy', busy);
       }
 
       function updateStats(stats) {
@@ -628,6 +652,7 @@
 
       async function loadTable() {
         clearMessage();
+        setBusy(document.querySelector('.section'), true);
         updateSortIndicators();
         updateExportLink();
         tableBody.innerHTML = '<tr class="loading-row"><td colspan="7">Memuat data...</td></tr>';
@@ -644,6 +669,8 @@
         } catch (error) {
           tableBody.innerHTML = '<tr><td colspan="7">Gagal memuat data.</td></tr>';
           showMessage(error.message || 'Gagal memuat data.', true);
+        } finally {
+          setBusy(document.querySelector('.section'), false);
         }
       }
 
