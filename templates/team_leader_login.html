@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login Team Leader</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+    .wrap {
+      max-width: 430px;
+      margin: 0 auto;
+      min-height: 100vh;
+      padding: 24px 16px;
+      display: flex;
+      align-items: center;
+    }
+    .card {
+      width: 100%;
+      background: white;
+      border-radius: 24px;
+      padding: 22px;
+      box-shadow: 0 4px 20px rgba(15, 23, 42, 0.08);
+    }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    p { margin: 0 0 20px; color: #64748b; font-size: 14px; line-height: 1.5; }
+    .field { margin-bottom: 14px; }
+    label { display: block; margin-bottom: 7px; font-size: 13px; font-weight: bold; }
+    .input {
+      width: 100%;
+      border: none;
+      outline: none;
+      background: #f1f5f9;
+      border-radius: 16px;
+      padding: 14px;
+      font-size: 14px;
+    }
+    .error {
+      background: #fee2e2;
+      color: #991b1b;
+      border-radius: 16px;
+      padding: 12px;
+      margin-bottom: 14px;
+      font-size: 14px;
+    }
+    .btn {
+      width: 100%;
+      border: none;
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      color: white;
+      border-radius: 14px;
+      padding: 14px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .links {
+      margin-top: 14px;
+      text-align: center;
+      font-size: 13px;
+    }
+    .links a {
+      color: #334155;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Team Leader</h1>
+      <p>Login untuk melihat dashboard performa KC yang sudah di-assign ke akun Anda.</p>
+
+      {% if error %}
+      <div class="error">{{ error }}</div>
+      {% endif %}
+
+      <form method="post">
+        <div class="field">
+          <label>Username</label>
+          <input class="input" type="text" name="username" required>
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input class="input" type="password" name="password" required>
+        </div>
+        <button class="btn" type="submit">Login Team Leader</button>
+      </form>
+
+      <div class="links">
+        <a href="/">Kembali ke halaman submit</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

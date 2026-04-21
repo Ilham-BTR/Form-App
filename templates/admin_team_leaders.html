@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Akses Team Leader</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+    .container {
+      width: min(1500px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 22px 16px 40px;
+    }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+    }
+    h1 { margin: 0; font-size: 28px; }
+    .desc { margin: 8px 0 0; color: #64748b; font-size: 14px; line-height: 1.6; }
+    .btn {
+      border: none;
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 14px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      display: inline-block;
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      color: white;
+    }
+    .btn-secondary {
+      background: white;
+      color: #0f172a;
+      border: 1px solid #cbd5e1;
+    }
+    .btn-danger {
+      background: #dc2626;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(320px, 460px) 1fr;
+      gap: 18px;
+      align-items: start;
+    }
+    .card, .section {
+      background: white;
+      border-radius: 22px;
+      padding: 18px;
+      box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
+    }
+    .card h2, .section h2 { margin: 0 0 12px; font-size: 20px; }
+    .field { margin-bottom: 14px; }
+    label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 700; color: #475569; }
+    .input, .textarea, .select {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 14px;
+      padding: 12px;
+      font-size: 14px;
+      background: white;
+      color: #0f172a;
+    }
+    .textarea { min-height: 130px; resize: vertical; font-family: inherit; }
+    .helper { color: #64748b; font-size: 13px; line-height: 1.5; margin-top: 6px; }
+    .message { border-radius: 14px; padding: 12px 14px; margin-bottom: 12px; font-size: 14px; }
+    .message-error { background: #fee2e2; color: #991b1b; }
+    .message-success { background: #dcfce7; color: #166534; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 720px;
+    }
+    th, td {
+      text-align: left;
+      padding: 12px 10px;
+      border-bottom: 1px solid #e2e8f0;
+      vertical-align: top;
+      font-size: 14px;
+    }
+    th {
+      color: #64748b;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .badge-active { background: #dcfce7; color: #166534; }
+    .badge-inactive { background: #fee2e2; color: #991b1b; }
+    .chip-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: #eff6ff;
+      color: #1d4ed8;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .chip span {
+      font-weight: 400;
+      color: #475569;
+    }
+    form.inline { display: inline; }
+    @media (max-width: 1000px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div>
+        <h1>Akses Team Leader</h1>
+        <p class="desc">Buat akun Team Leader dan assign daftar anak KC yang boleh dilihat di dashboard TL.</p>
+      </div>
+      <a class="btn btn-secondary" href="/admin">Kembali ke Admin</a>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Tambah / Update TL</h2>
+        {% if error %}
+        <div class="message message-error">{{ error }}</div>
+        {% endif %}
+        {% if success %}
+        <div class="message message-success">{{ success }}</div>
+        {% endif %}
+        <form method="post">
+          <div class="field">
+            <label>Username TL</label>
+            <input class="input" type="text" name="username" required placeholder="Mis. tl_tangerang_a">
+          </div>
+          <div class="field">
+            <label>Nama TL</label>
+            <input class="input" type="text" name="leader_name" required placeholder="Mis. Team Leader A">
+          </div>
+          <div class="field">
+            <label>Password</label>
+            <input class="input" type="password" name="password" placeholder="Kosongkan jika tidak ingin ganti password saat edit">
+          </div>
+          <div class="field">
+            <label>Status</label>
+            <select class="select" name="is_active">
+              <option value="1">Aktif</option>
+              <option value="0">Nonaktif</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Daftar KC Token Anak</label>
+            <textarea class="textarea" name="allowed_kc_tokens" placeholder="Satu KC token per baris atau pisahkan dengan koma"></textarea>
+            <div class="helper">Contoh: `KC-A`, `KC-B`, `KC-C`. Hanya KC yang valid yang bisa disimpan.</div>
+          </div>
+          <button class="btn" type="submit">Simpan Akun TL</button>
+        </form>
+      </div>
+
+      <div class="section">
+        <h2>Ringkasan Akun TL</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Nama TL</th>
+              <th>Status</th>
+              <th>Jumlah KC</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in leaders %}
+            <tr>
+              <td>{{ row.username }}</td>
+              <td>{{ row.leader_name }}</td>
+              <td>
+                {% if row.is_active == 1 %}
+                <span class="badge badge-active">Aktif</span>
+                {% else %}
+                <span class="badge badge-inactive">Nonaktif</span>
+                {% endif %}
+              </td>
+              <td>{{ row.kc_count }}</td>
+              <td>
+                <form class="inline" method="post" action="/admin/team-leaders/{{ row.username }}/delete" onsubmit="return confirm('Hapus akun TL {{ row.username }}?');">
+                  <button class="btn btn-danger" type="submit">Hapus</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+            {% if not leaders %}
+            <tr><td colspan="5">Belum ada akun Team Leader.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section" style="margin-top:18px; overflow-x:auto;">
+      <h2>Mapping Anak KC</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>TL</th>
+            <th>Status</th>
+            <th>KC yang Diizinkan</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in leader_access %}
+          <tr>
+            <td>
+              <strong>{{ row.leader_name }}</strong><br>
+              <span style="color:#64748b;">{{ row.username }}</span>
+            </td>
+            <td>
+              {% if row.is_active == 1 %}
+              <span class="badge badge-active">Aktif</span>
+              {% else %}
+              <span class="badge badge-inactive">Nonaktif</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if row.kc_items %}
+              <div class="chip-list">
+                {% for item in row.kc_items %}
+                <div class="chip">{{ item.kc_token }} <span>{{ item.kc_name }} • {{ item.team }} • {{ item.token_area }}</span></div>
+                {% endfor %}
+              </div>
+              {% else %}
+              Belum ada anak KC.
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not leader_access %}
+          <tr><td colspan="3">Belum ada mapping Team Leader ke KC.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section" style="margin-top:18px; overflow-x:auto;">
+      <h2>Daftar KC Valid</h2>
+      <div class="helper" style="margin-bottom:10px;">Gunakan daftar ini untuk copy `kc_token` saat assign anak KC ke akun Team Leader.</div>
+      <table>
+        <thead>
+          <tr>
+            <th>KC Token</th>
+            <th>Nama KC</th>
+            <th>Team</th>
+            <th>Area</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in kc_tokens %}
+          <tr>
+            <td>{{ row.kc_token }}</td>
+            <td>{{ row.kc_name }}</td>
+            <td>{{ row.team }}</td>
+            <td>{{ row.token_area }}</td>
+          </tr>
+          {% endfor %}
+          {% if not kc_tokens %}
+          <tr><td colspan="4">Belum ada data KC.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>

@@ -243,11 +243,15 @@
       <div class="title">
         <h1>Dashboard Team Leader</h1>
         <p>Monitoring performa KC secara read-only untuk periode terpilih. Fokus halaman ini adalah tracking operasional tim, bukan pengelolaan token atau data sensitif.</p>
+        <p class="helper" style="margin-top:10px;">Login sebagai <strong>{{ viewer_name }}</strong>. Akses saat ini mencakup <strong>{{ allowed_kc_count }}</strong> KC.</p>
       </div>
       <div class="actions">
+        {% if viewer_role == 'admin' %}
         <a class="btn btn-secondary" href="/admin">Kembali ke Admin</a>
+        {% endif %}
         <a class="btn btn-secondary" href="/user">Ke Form Submit</a>
         <a class="btn" href="/leader">Refresh</a>
+        <a class="btn btn-secondary" href="{% if viewer_role == 'admin' %}/admin/logout{% else %}/leader/logout{% endif %}">Logout</a>
       </div>
     </div>
 

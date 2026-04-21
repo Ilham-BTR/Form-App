@@ -22,6 +22,7 @@ import time
 from io import BytesIO, TextIOWrapper, StringIO
 from functools import wraps
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 from openpyxl import Workbook, load_workbook
 
 
@@ -261,6 +262,30 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_attempts_status ON submission_attempts (status_local, created_at DESC)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_attempts_kc ON submission_attempts (kc_token, created_at DESC)")
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS team_leaders (
+            username TEXT PRIMARY KEY,
+            password_hash TEXT NOT NULL,
+            leader_name TEXT NOT NULL DEFAULT '',
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT ''
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS team_leader_kc_access (
+            id BIGSERIAL PRIMARY KEY,
+            leader_username TEXT NOT NULL,
+            kc_token TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT '',
+            UNIQUE (leader_username, kc_token)
+        )
+    """)
+
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_team_leader_access_username ON team_leader_kc_access (leader_username)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_team_leader_access_kc_token ON team_leader_kc_access (kc_token)")
+
     conn.commit()
     conn.close()
 
@@ -321,12 +346,25 @@ def is_admin_logged_in():
     return session.get("is_admin_logged_in") is True
 
 
+def is_team_leader_logged_in():
+    return session.get("is_team_leader_logged_in") is True and bool((session.get("team_leader_username") or "").strip())
+
+
 def admin_required(view_func):
     @wraps(view_func)
     def wrapper(*args, **kwargs):
         if not is_admin_logged_in():
             return redirect(url_for("admin_login"))
         return view_func(*args, **kwargs)
+    return wrapper
+
+
+def leader_required(view_func):
+    @wraps(view_func)
+    def wrapper(*args, **kwargs):
+        if is_admin_logged_in() or is_team_leader_logged_in():
+            return view_func(*args, **kwargs)
+        return redirect(url_for("team_leader_login"))
     return wrapper
 
 
@@ -3280,6 +3318,37 @@ def admin_logout():
     return redirect(url_for("admin_login"))
 
 
+@app.route("/leader/login", methods=["GET", "POST"])
+def team_leader_login():
+    error = None
+
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        account = get_team_leader(username)
+
+        if not account or account["is_active"] != 1 or not check_password_hash(account["password_hash"], password):
+            error = "Username atau password Team Leader salah."
+            if wants_json_response():
+                return jsonify({"success": False, "error": error}), 401
+        else:
+            clear_team_leader_session()
+            session["is_team_leader_logged_in"] = True
+            session["team_leader_username"] = account["username"]
+            session["team_leader_name"] = account["leader_name"] or account["username"]
+            if wants_json_response():
+                return jsonify({"success": True, "redirect_url": url_for("team_leader_dashboard")})
+            return redirect(url_for("team_leader_dashboard"))
+
+    return render_template("team_leader_login.html", error=error)
+
+
+@app.route("/leader/logout")
+def team_leader_logout():
+    clear_team_leader_session()
+    return redirect(url_for("team_leader_login"))
+
+
 def build_admin_dashboard_context(args):
     token_rows = get_all_kc_tokens()
 
@@ -3399,8 +3468,11 @@ def build_admin_dashboard_context(args):
     }
 
 
-def build_team_leader_dashboard_context(args):
+def build_team_leader_dashboard_context(args, allowed_kc_tokens=None, viewer_name="", viewer_role="admin"):
     token_rows = get_all_kc_tokens()
+    allowed_token_set = None if allowed_kc_tokens is None else {str(token).strip() for token in allowed_kc_tokens if str(token).strip()}
+    if allowed_token_set is not None:
+        token_rows = [row for row in token_rows if row["kc_token"] in allowed_token_set]
 
     def parse_date_param(key):
         val = (args.get(key) or "").strip()
@@ -3562,6 +3634,9 @@ def build_team_leader_dashboard_context(args):
         "low_quota_preview_count": len(low_quota_rows),
         "inactive_rows": inactive_rows,
         "inactive_count": len([r for r in filtered_rows_all if r["is_active"] != 1]),
+        "viewer_name": viewer_name or ("Admin" if viewer_role == "admin" else "Team Leader"),
+        "viewer_role": viewer_role,
+        "allowed_kc_count": len(allowed_token_set) if allowed_token_set is not None else len(token_rows),
     }
 
 
@@ -3651,6 +3726,192 @@ def get_token_filter_help_text():
     return "Bisa cari beberapa nama sekaligus, pisahkan dengan koma atau baris baru. Contoh: Ariska, Cici, Fahmi"
 
 
+def clear_team_leader_session():
+    session.pop("is_team_leader_logged_in", None)
+    session.pop("team_leader_username", None)
+    session.pop("team_leader_name", None)
+
+
+def get_team_leader(username):
+    current = str(username or "").strip()
+    if not current:
+        return None
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT username, password_hash, leader_name, is_active, created_at, updated_at
+        FROM team_leaders
+        WHERE username = %s
+        """,
+        (current,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def get_team_leader_access_tokens(username):
+    current = str(username or "").strip()
+    if not current:
+        return []
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT a.kc_token
+        FROM team_leader_kc_access a
+        WHERE a.leader_username = %s
+        ORDER BY a.kc_token ASC
+        """,
+        (current,),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [row["kc_token"] for row in rows]
+
+
+def get_all_team_leaders():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT tl.username, tl.leader_name, tl.is_active, tl.created_at, tl.updated_at,
+               COALESCE(COUNT(a.kc_token), 0) AS kc_count
+        FROM team_leaders tl
+        LEFT JOIN team_leader_kc_access a ON a.leader_username = tl.username
+        GROUP BY tl.username, tl.leader_name, tl.is_active, tl.created_at, tl.updated_at
+        ORDER BY tl.leader_name ASC, tl.username ASC
+        """
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def get_team_leader_access_rows():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT tl.username, tl.leader_name, tl.is_active, a.kc_token,
+               COALESCE(v.kc_name, '') AS kc_name,
+               COALESCE(v.team, '') AS team,
+               COALESCE(v.token_area, '') AS token_area
+        FROM team_leaders tl
+        LEFT JOIN team_leader_kc_access a ON a.leader_username = tl.username
+        LEFT JOIN valid_kc_tokens v ON v.kc_token = a.kc_token
+        ORDER BY tl.leader_name ASC, tl.username ASC, a.kc_token ASC
+        """
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def normalize_kc_token_list(raw_value):
+    if isinstance(raw_value, list):
+        values = raw_value
+    else:
+        values = re.split(r"[\r\n,;|]+", str(raw_value or ""))
+    unique_tokens = []
+    seen = set()
+    for value in values:
+        token = str(value or "").strip()
+        if not token:
+            continue
+        token_key = token.lower()
+        if token_key in seen:
+            continue
+        seen.add(token_key)
+        unique_tokens.append(token)
+    return unique_tokens
+
+
+def save_team_leader(username, password, leader_name, is_active, allowed_kc_tokens):
+    current_username = str(username or "").strip()
+    current_leader_name = str(leader_name or "").strip()
+    if not current_username:
+        raise ValueError("Username TL wajib diisi.")
+    if not current_leader_name:
+        raise ValueError("Nama TL wajib diisi.")
+
+    current_password = str(password or "")
+    existing = get_team_leader(current_username)
+    if not existing and not current_password:
+        raise ValueError("Password TL wajib diisi saat membuat akun baru.")
+
+    normalized_tokens = normalize_kc_token_list(allowed_kc_tokens)
+    valid_kc_tokens = {row["kc_token"] for row in get_all_kc_tokens()}
+    invalid_tokens = [token for token in normalized_tokens if token not in valid_kc_tokens]
+    if invalid_tokens:
+        raise ValueError("KC token tidak ditemukan: " + ", ".join(invalid_tokens))
+
+    now_str = get_now_db_string()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    if existing:
+        if current_password:
+            cur.execute(
+                """
+                UPDATE team_leaders
+                SET password_hash = %s,
+                    leader_name = %s,
+                    is_active = %s,
+                    updated_at = %s
+                WHERE username = %s
+                """,
+                (generate_password_hash(current_password), current_leader_name, int(bool(is_active)), now_str, current_username),
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE team_leaders
+                SET leader_name = %s,
+                    is_active = %s,
+                    updated_at = %s
+                WHERE username = %s
+                """,
+                (current_leader_name, int(bool(is_active)), now_str, current_username),
+            )
+    else:
+        cur.execute(
+            """
+            INSERT INTO team_leaders (username, password_hash, leader_name, is_active, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (current_username, generate_password_hash(current_password), current_leader_name, int(bool(is_active)), now_str, now_str),
+        )
+
+    cur.execute("DELETE FROM team_leader_kc_access WHERE leader_username = %s", (current_username,))
+    for token in normalized_tokens:
+        cur.execute(
+            """
+            INSERT INTO team_leader_kc_access (leader_username, kc_token, created_at)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (leader_username, kc_token) DO NOTHING
+            """,
+            (current_username, token, now_str),
+        )
+    conn.commit()
+    conn.close()
+    return current_username
+
+
+def delete_team_leader(username):
+    current = str(username or "").strip()
+    if not current:
+        raise ValueError("Username TL tidak valid.")
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM team_leader_kc_access WHERE leader_username = %s", (current,))
+    cur.execute("DELETE FROM team_leaders WHERE username = %s", (current,))
+    deleted = cur.rowcount
+    conn.commit()
+    conn.close()
+    return deleted > 0
+
+
 @app.route("/admin")
 @admin_required
 def admin_dashboard():
@@ -3664,9 +3925,81 @@ def admin_dashboard_data():
 
 
 @app.route("/leader")
-@admin_required
+@leader_required
 def team_leader_dashboard():
-    return render_template("team_leader_dashboard.html", **build_team_leader_dashboard_context(request.args))
+    if is_admin_logged_in():
+        context = build_team_leader_dashboard_context(
+            request.args,
+            allowed_kc_tokens=None,
+            viewer_name=session.get("admin_page_username") or "Admin",
+            viewer_role="admin",
+        )
+    else:
+        leader_username = session.get("team_leader_username") or ""
+        context = build_team_leader_dashboard_context(
+            request.args,
+            allowed_kc_tokens=get_team_leader_access_tokens(leader_username),
+            viewer_name=session.get("team_leader_name") or leader_username,
+            viewer_role="leader",
+        )
+    return render_template("team_leader_dashboard.html", **context)
+
+
+@app.route("/admin/team-leaders", methods=["GET", "POST"])
+@admin_required
+def admin_team_leaders():
+    error = ""
+    success = ""
+    if request.method == "POST":
+        try:
+            username = (request.form.get("username") or "").strip()
+            password = request.form.get("password") or ""
+            leader_name = (request.form.get("leader_name") or "").strip()
+            is_active = (request.form.get("is_active") or "1").strip() == "1"
+            allowed_kc_tokens = request.form.get("allowed_kc_tokens") or ""
+            saved_username = save_team_leader(username, password, leader_name, is_active, allowed_kc_tokens)
+            success = f"Akun Team Leader {saved_username} berhasil disimpan."
+        except Exception as e:
+            error = str(e)
+
+    access_rows = get_team_leader_access_rows()
+    grouped_access = {}
+    for row in access_rows:
+        key = row["username"]
+        item = grouped_access.setdefault(key, {
+            "username": row["username"],
+            "leader_name": row["leader_name"] or row["username"],
+            "is_active": row["is_active"],
+            "kc_items": [],
+        })
+        if row.get("kc_token"):
+            item["kc_items"].append({
+                "kc_token": row["kc_token"],
+                "kc_name": row.get("kc_name") or "-",
+                "team": row.get("team") or "-",
+                "token_area": row.get("token_area") or "-",
+            })
+
+    return render_template(
+        "admin_team_leaders.html",
+        error=error,
+        success=success,
+        leaders=get_all_team_leaders(),
+        leader_access=list(grouped_access.values()),
+        kc_tokens=get_all_kc_tokens(),
+    )
+
+
+@app.route("/admin/team-leaders/<username>/delete", methods=["POST"])
+@admin_required
+def admin_delete_team_leader(username):
+    try:
+        deleted = delete_team_leader(username)
+        if not deleted:
+            raise ValueError("Akun Team Leader tidak ditemukan.")
+        return redirect(url_for("admin_team_leaders"))
+    except Exception:
+        return redirect(url_for("admin_team_leaders"))
 
 
 @app.route("/admin/token/add", methods=["GET", "POST"])
