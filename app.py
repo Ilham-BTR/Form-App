@@ -2794,6 +2794,11 @@ def user_app():
     bearer_token = (kc_detail["bearer_token"] or "").strip()
     kc_name = kc_detail["kc_name"] or "-"
     used_today, remaining_today, quota_date = get_remaining_quota(kc_token, daily_limit)
+    purchase_counts_today = get_kc_purchase_counts(quota_date, quota_date).get(kc_token, {})
+    total_submit_noc = int(used_today or 0)
+    purchase_yes = int(purchase_counts_today.get("purchase_yes", 0) or 0)
+    purchase_no = int(purchase_counts_today.get("purchase_no", 0) or 0)
+    lighter_yes = int(purchase_counts_today.get("lighter_yes", 0) or 0)
 
     release_stale_reserved_phones(kc_token=kc_token)
     assigned_phone_number = session.get("assigned_phone_number")
@@ -3088,6 +3093,10 @@ def user_app():
         used_today=used_today,
         remaining_today=remaining_today,
         daily_limit=daily_limit,
+        total_submit_noc=total_submit_noc,
+        purchase_yes=purchase_yes,
+        purchase_no=purchase_no,
+        lighter_yes=lighter_yes,
         kc_name=kc_name,
         age_range_options=AGE_RANGE_OPTIONS,
         product_pack_options=PRODUCT_PACK_OPTIONS,
