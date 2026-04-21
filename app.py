@@ -559,6 +559,63 @@ def get_submission_status_counts():
     return counts
 
 
+def get_kc_purchase_counts(date_from="", date_to=""):
+    date_from = normalize_submission_date_filter(date_from) or get_today_wib()
+    date_to = normalize_submission_date_filter(date_to) or date_from
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            s.kc_token,
+            SUM(CASE WHEN COALESCE(s.request_summary_json::jsonb ->> 'has_purchased', '') = 'true' THEN 1 ELSE 0 END) AS purchase_yes,
+            SUM(CASE WHEN COALESCE(s.request_summary_json::jsonb ->> 'has_purchased', '') = 'false' THEN 1 ELSE 0 END) AS purchase_no,
+            SUM(
+                CASE
+                    WHEN COALESCE(s.request_summary_json::jsonb ->> 'has_purchased', '') = 'true'
+                     AND EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(COALESCE(NULLIF(s.request_summary_json::jsonb ->> 'product_transactions', '')::jsonb, '[]'::jsonb)) AS item
+                        WHERE item ->> 'product_name' = 'Lighter'
+                          AND COALESCE((item ->> 'quantity')::int, 0) > 0
+                    )
+                    THEN 1 ELSE 0
+                END
+            ) AS lighter_yes,
+            SUM(
+                CASE
+                    WHEN COALESCE(s.request_summary_json::jsonb ->> 'has_purchased', '') = 'true'
+                     AND NOT EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(COALESCE(NULLIF(s.request_summary_json::jsonb ->> 'product_transactions', '')::jsonb, '[]'::jsonb)) AS item
+                        WHERE item ->> 'product_name' = 'Lighter'
+                          AND COALESCE((item ->> 'quantity')::int, 0) > 0
+                    )
+                    THEN 1 ELSE 0
+                END
+            ) AS lighter_no
+        FROM submission_attempts s
+        WHERE s.created_at >= %s
+          AND s.created_at <= %s
+          AND s.status_local IN ('SUCCESS', 'LIKELY_SUCCESS')
+        GROUP BY s.kc_token
+        """,
+        (f"{date_from} 00:00:00", f"{date_to} 23:59:59"),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return {
+        row["kc_token"]: {
+            "purchase_yes": int(row["purchase_yes"] or 0),
+            "purchase_no": int(row["purchase_no"] or 0),
+            "lighter_yes": int(row["lighter_yes"] or 0),
+            "lighter_no": int(row["lighter_no"] or 0),
+        }
+        for row in rows
+    }
+
+
 def build_submission_attempts_export_csv(limit=10000, status_filter="", kc_token_filter="", phone_filter="", date_from="", date_to=""):
     rows = get_recent_submission_attempts(
         limit=limit,
@@ -2717,6 +2774,7 @@ def user_app():
         submission_id = secrets.token_hex(16)
         submission_attempt_created = False
         tracking_phone_number = (session.get("assigned_phone_number") or "").strip() or "UNKNOWN"
+        lighter_val = ""
         try:
             create_submission_attempt(
                 submission_id,
@@ -2798,6 +2856,7 @@ def user_app():
                 "current_bumo": current_bumo,
                 "kc_area": kc_area,
                 "has_purchased": has_purchased,
+                "lighter": lighter_val,
                 "non_purchase_reasons": non_purchase_reasons,
                 "has_transaction_photo": bool(transaction_photo and transaction_photo.filename),
                 "has_chat_photo": bool(chat_photo and chat_photo.filename),
@@ -3072,8 +3131,13 @@ def build_admin_dashboard_context(args):
     total_submit_today = sum(r["total_submit"] for r in usage_rows)
 
     usage_by_token = {row["kc_token"]: row["total_submit"] for row in usage_rows}
+    purchase_counts_by_token = get_kc_purchase_counts(
+        date_from=selected_usage_date_from,
+        date_to=selected_usage_date_to,
+    )
     masked_token_rows = []
     for row in token_rows:
+        purchase_counts = purchase_counts_by_token.get(row["kc_token"], {})
         masked_token_rows.append({
             "kc_token": row["kc_token"],
             "kc_name": row["kc_name"],
@@ -3083,6 +3147,10 @@ def build_admin_dashboard_context(args):
             "bearer_token_masked": mask_bearer_token(row["bearer_token"]),
             "daily_limit": row["daily_limit"],
             "total_submit": usage_by_token.get(row["kc_token"], 0),
+            "purchase_yes": purchase_counts.get("purchase_yes", 0),
+            "purchase_no": purchase_counts.get("purchase_no", 0),
+            "lighter_yes": purchase_counts.get("lighter_yes", 0),
+            "lighter_no": purchase_counts.get("lighter_no", 0),
             "is_active": row["is_active"],
         })
 

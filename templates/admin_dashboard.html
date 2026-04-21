@@ -477,6 +477,10 @@
             <th>Bearer Token</th>
             <th>Limit Harian</th>
             <th>Terpakai Hari Ini</th>
+            <th>Beli</th>
+            <th>Tidak Beli</th>
+            <th>Lighter Ya</th>
+            <th>Lighter Tidak</th>
             <th>Status</th>
             <th>Aksi</th>
           </tr>
@@ -492,6 +496,10 @@
             <td><code>{{ row.bearer_token_masked }}</code></td>
             <td>{{ row.daily_limit }}</td>
             <td>{{ row.total_submit }}</td>
+            <td>{{ row.purchase_yes }}</td>
+            <td>{{ row.purchase_no }}</td>
+            <td>{{ row.lighter_yes }}</td>
+            <td>{{ row.lighter_no }}</td>
             <td>
               {% if row.is_active == 1 %}
               <span class="badge badge-active">Aktif</span>
@@ -523,7 +531,7 @@
           {% endfor %}
           {% if not token_rows %}
           <tr>
-            <td colspan="10">Belum ada KC token.</td>
+            <td colspan="14">Belum ada KC token.</td>
           </tr>
           {% endif %}
         </tbody>
@@ -716,7 +724,7 @@
 
     function renderTokenRows(rows) {
       if (!rows.length) {
-        tokenTableBody.innerHTML = '<tr><td colspan="10">Belum ada KC token.</td></tr>';
+        tokenTableBody.innerHTML = '<tr><td colspan="14">Belum ada KC token.</td></tr>';
         return;
       }
 
@@ -736,6 +744,10 @@
             <td><code>${escapeHtml(row.bearer_token_masked)}</code></td>
             <td>${escapeHtml(row.daily_limit)}</td>
             <td>${escapeHtml(row.total_submit)}</td>
+            <td>${escapeHtml(row.purchase_yes ?? 0)}</td>
+            <td>${escapeHtml(row.purchase_no ?? 0)}</td>
+            <td>${escapeHtml(row.lighter_yes ?? 0)}</td>
+            <td>${escapeHtml(row.lighter_no ?? 0)}</td>
             <td>${statusBadge}</td>
             <td>
               <div class="row-actions">
