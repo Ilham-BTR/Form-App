@@ -687,11 +687,14 @@ def build_submission_attempts_export_csv(limit=10000, status_filter="", kc_token
         "age_range",
         "current_bumo",
         "kc_area",
+        "kc_area_name",
         "has_purchased",
+        "lighter",
         "non_purchase_reasons",
         "has_transaction_photo",
         "has_chat_photo",
         "product_transactions",
+        "username",
         "response",
         "submission_id",
         "attempts_json",
@@ -699,6 +702,17 @@ def build_submission_attempts_export_csv(limit=10000, status_filter="", kc_token
     ])
     for row in rows:
         request_summary = row.get("request_summary") or {}
+        response_username = ""
+        final_response_text = row.get("final_response_text") or ""
+        if final_response_text:
+            try:
+                response_payload = json.loads(final_response_text)
+                if isinstance(response_payload, dict):
+                    response_data = response_payload.get("data") or {}
+                    if isinstance(response_data, dict):
+                        response_username = response_data.get("username") or ""
+            except Exception:
+                response_username = ""
         writer.writerow([
             row.get("created_at") or "",
             row.get("updated_at") or "",
@@ -714,11 +728,14 @@ def build_submission_attempts_export_csv(limit=10000, status_filter="", kc_token
             request_summary.get("age_range") or "",
             request_summary.get("current_bumo") or "",
             request_summary.get("kc_area") or "",
+            request_summary.get("kc_area_label") or request_summary.get("kc_area") or "",
             request_summary.get("has_purchased") or "",
+            request_summary.get("lighter") or "",
             request_summary.get("non_purchase_reasons") or "",
             request_summary.get("has_transaction_photo") or "",
             request_summary.get("has_chat_photo") or "",
             request_summary.get("product_transactions") or "",
+            response_username,
             row.get("final_response_text") or "",
             row.get("submission_id") or "",
             safe_json_dumps(row.get("attempts") or [], ensure_ascii=False),
@@ -3025,6 +3042,7 @@ def user_app():
                 "age_range": age_range,
                 "current_bumo": current_bumo,
                 "kc_area": kc_area,
+                "kc_area_label": kc_area_label,
                 "has_purchased": has_purchased,
                 "lighter": lighter_val,
                 "non_purchase_reasons": non_purchase_reasons,

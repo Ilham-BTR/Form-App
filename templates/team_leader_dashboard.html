@@ -20,7 +20,7 @@
       margin: 0 auto;
       padding: 22px 16px 40px;
     }
-    .topbar, .insight-grid, .stats, .table-toolbar {
+    .topbar, .stats, .table-toolbar {
       display: grid;
       gap: 14px;
     }
@@ -144,49 +144,6 @@
       margin-top: 6px;
       font-size: 12px;
       color: #64748b;
-    }
-    .insight-grid {
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      margin-bottom: 18px;
-    }
-    .insight-card {
-      background: linear-gradient(180deg, #ffffff, #f8fbff);
-      border: 1px solid #dbeafe;
-      border-radius: 22px;
-      padding: 18px;
-    }
-    .insight-card h3 {
-      margin: 0 0 12px;
-      font-size: 18px;
-    }
-    .mini-list {
-      display: grid;
-      gap: 10px;
-    }
-    .mini-item {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: center;
-      padding: 12px 14px;
-      border-radius: 16px;
-      background: white;
-      border: 1px solid #e2e8f0;
-    }
-    .mini-item strong {
-      display: block;
-      font-size: 14px;
-    }
-    .mini-item span {
-      display: block;
-      margin-top: 3px;
-      font-size: 12px;
-      color: #64748b;
-    }
-    .mini-value {
-      font-size: 22px;
-      font-weight: 700;
-      white-space: nowrap;
     }
     .badge {
       display: inline-block;
@@ -366,54 +323,6 @@
         <h3>Sisa Kuota</h3>
         <div class="big">{{ total_remaining_quota }}</div>
         <div class="sub">{{ low_quota_count }} KC sisa kuotanya 10 atau kurang</div>
-      </div>
-    </div>
-
-    <div class="insight-grid">
-      <div class="insight-card">
-        <h3>Top Performer</h3>
-        <div class="mini-list">
-          <div class="mini-item">
-            <div>
-              <strong>{{ top_submitter.kc_name if top_submitter else 'Belum ada data' }}</strong>
-              <span>{{ top_submitter.team if top_submitter else '-' }} • {{ top_submitter.token_area if top_submitter else '-' }} • Submit tertinggi</span>
-            </div>
-            <div class="mini-value">{{ top_submitter.total_submit if top_submitter else 0 }}</div>
-          </div>
-          <div class="mini-item">
-            <div>
-              <strong>{{ top_buyer.kc_name if top_buyer else 'Belum ada data' }}</strong>
-              <span>{{ top_buyer.team if top_buyer else '-' }} • {{ top_buyer.token_area if top_buyer else '-' }} • Beli tertinggi</span>
-            </div>
-            <div class="mini-value">{{ top_buyer.purchase_yes if top_buyer else 0 }}</div>
-          </div>
-        </div>
-      </div>
-      <div class="insight-card">
-        <h3>Perlu Perhatian</h3>
-        <div class="mini-list">
-          <div class="mini-item">
-            <div>
-              <strong>KC tanpa submit</strong>
-              <span>Jumlah KC yang belum menghasilkan submit pada periode terpilih</span>
-            </div>
-            <div class="mini-value">{{ zero_submit_count }}</div>
-          </div>
-          <div class="mini-item">
-            <div>
-              <strong>KC kuota menipis</strong>
-              <span>Prioritas follow-up untuk sisa kuota 10 atau kurang</span>
-            </div>
-            <div class="mini-value">{{ low_quota_count }}</div>
-          </div>
-          <div class="mini-item">
-            <div>
-              <strong>KC nonaktif</strong>
-              <span>Perlu dicek apakah memang sengaja dinonaktifkan</span>
-            </div>
-            <div class="mini-value">{{ inactive_count }}</div>
-          </div>
-        </div>
       </div>
     </div>
 
