@@ -479,8 +479,7 @@
             <th>Terpakai Hari Ini</th>
             <th>NOT</th>
             <th>NOC</th>
-            <th>Lighter Ya</th>
-            <th>Lighter Tidak</th>
+            <th>Lighter</th>
             <th>Status</th>
             <th>Aksi</th>
           </tr>
@@ -499,7 +498,6 @@
             <td>{{ row.purchase_yes }}</td>
             <td>{{ row.purchase_no }}</td>
             <td>{{ row.lighter_yes }}</td>
-            <td>{{ row.lighter_no }}</td>
             <td>
               {% if row.is_active == 1 %}
               <span class="badge badge-active">Aktif</span>
@@ -531,7 +529,7 @@
           {% endfor %}
           {% if not token_rows %}
           <tr>
-            <td colspan="14">Belum ada KC token.</td>
+            <td colspan="13">Belum ada KC token.</td>
           </tr>
           {% endif %}
         </tbody>
@@ -724,7 +722,7 @@
 
     function renderTokenRows(rows) {
       if (!rows.length) {
-        tokenTableBody.innerHTML = '<tr><td colspan="14">Belum ada KC token.</td></tr>';
+        tokenTableBody.innerHTML = '<tr><td colspan="13">Belum ada KC token.</td></tr>';
         return;
       }
 
@@ -747,7 +745,6 @@
             <td>${escapeHtml(row.purchase_yes ?? 0)}</td>
             <td>${escapeHtml(row.purchase_no ?? 0)}</td>
             <td>${escapeHtml(row.lighter_yes ?? 0)}</td>
-            <td>${escapeHtml(row.lighter_no ?? 0)}</td>
             <td>${statusBadge}</td>
             <td>
               <div class="row-actions">
