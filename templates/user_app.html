@@ -1278,6 +1278,12 @@
       setSubmitLoading(false);
     });
 
+    window.addEventListener('beforeunload', function (event) {
+      if (!isSubmitting) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
+
     window.addEventListener('DOMContentLoaded', function () {
       buildProductTransactions();
       updatePurchaseFields();

@@ -104,6 +104,7 @@ VALID_AGE_RANGES = {value for value, _label in AGE_RANGE_OPTIONS}
 DATABASE_URL = require_env("DATABASE_URL")
 DEFAULT_DAILY_LIMIT = 40
 RESERVED_PHONE_TIMEOUT_MINUTES = get_positive_int_env("RESERVED_PHONE_TIMEOUT_MINUTES", 120)
+DUPLICATE_SUBMISSION_WINDOW_MINUTES = get_positive_int_env("DUPLICATE_SUBMISSION_WINDOW_MINUTES", 10)
 SUBMISSION_LOG_LIMIT_OPTIONS = ["25", "50", "100", "200", "500", "1000", "10000", "all"]
 MAX_SUBMISSION_LOG_LIMIT = 10000
 
@@ -2239,6 +2240,96 @@ def safe_json_dumps(value, **kwargs):
     return json.dumps(_make_json_safe(value), **kwargs)
 
 
+def normalize_submission_identity_text(value):
+    return re.sub(r"\s+", " ", str(value or "").strip()).lower()
+
+
+def canonicalize_product_transactions(value):
+    current = str(value or "").strip()
+    if not current:
+        return []
+    try:
+        items = json.loads(current)
+    except Exception:
+        return current
+    if not isinstance(items, list):
+        return current
+
+    normalized = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        normalized.append({
+            "product_name": normalize_submission_identity_text(item.get("product_name")),
+            "quantity": int(item.get("quantity") or 0),
+        })
+    normalized.sort(key=lambda item: (item["product_name"], item["quantity"]))
+    return normalized
+
+
+def build_submission_identity_payload(request_summary):
+    summary = request_summary or {}
+    return {
+        "kc_name": normalize_submission_identity_text(summary.get("kc_name")),
+        "customer_name": normalize_submission_identity_text(summary.get("customer_name")),
+        "age_range": normalize_submission_identity_text(summary.get("age_range")),
+        "current_bumo": normalize_submission_identity_text(summary.get("current_bumo")),
+        "kc_area": normalize_submission_identity_text(summary.get("kc_area")),
+        "has_purchased": normalize_submission_identity_text(summary.get("has_purchased")),
+        "lighter": normalize_submission_identity_text(summary.get("lighter")),
+        "non_purchase_reasons": normalize_submission_identity_text(summary.get("non_purchase_reasons")),
+        "product_transactions": canonicalize_product_transactions(summary.get("product_transactions")),
+    }
+
+
+def build_submission_identity_key(request_summary):
+    canonical_payload = build_submission_identity_payload(request_summary)
+    payload_text = safe_json_dumps(canonical_payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(payload_text.encode("utf-8")).hexdigest()
+
+
+class DuplicateSubmissionBlocked(Exception):
+    pass
+
+
+def find_recent_duplicate_submission(kc_token, request_summary, exclude_submission_id=None):
+    identity_key = build_submission_identity_key(request_summary)
+    cutoff = (get_now_wib() - timedelta(minutes=DUPLICATE_SUBMISSION_WINDOW_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT submission_id, phone_number, status_local, created_at, request_summary_json
+        FROM submission_attempts
+        WHERE kc_token = %s
+          AND created_at >= %s
+          AND status_local IN ('PENDING', 'SUCCESS', 'LIKELY_SUCCESS')
+        ORDER BY created_at DESC
+        LIMIT 50
+        """,
+        (kc_token, cutoff),
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    for row in rows:
+        if exclude_submission_id and row["submission_id"] == exclude_submission_id:
+            continue
+        try:
+            existing_summary = json.loads(row["request_summary_json"] or "{}")
+        except Exception:
+            existing_summary = {}
+        if build_submission_identity_key(existing_summary) == identity_key:
+            return {
+                "submission_id": row["submission_id"],
+                "phone_number": row["phone_number"],
+                "status_local": row["status_local"],
+                "created_at": row["created_at"],
+            }
+    return None
+
+
 def build_hash(secret, method, endpoint, payload_obj, timestamp):
     parsed = urlparse(endpoint)
     pathname = parsed.path if parsed.path else endpoint
@@ -2905,6 +2996,53 @@ def user_app():
             }
             update_submission_request_summary(submission_id, phone_number, kc_token, request_summary)
 
+            duplicate_submission = find_recent_duplicate_submission(
+                kc_token=kc_token,
+                request_summary=request_summary,
+                exclude_submission_id=submission_id,
+            )
+            if duplicate_submission:
+                duplicate_created_at = duplicate_submission.get("created_at") or "-"
+                duplicate_phone = duplicate_submission.get("phone_number") or "-"
+                duplicate_status = duplicate_submission.get("status_local") or "PENDING"
+                duplicate_message = (
+                    f"Submit dengan data yang sama sudah terdeteksi pada {duplicate_created_at} "
+                    f"dengan nomor {duplicate_phone}. Sistem membatalkan kirim ulang otomatis."
+                )
+                update_submission_attempt(
+                    submission_id,
+                    "FAILED",
+                    None,
+                    duplicate_message,
+                    [],
+                )
+                logger.warning(
+                    "duplicate submission blocked submission_id=%s duplicate_submission_id=%s kc_token=%s duplicate_phone=%s duplicate_status=%s",
+                    submission_id,
+                    duplicate_submission.get("submission_id"),
+                    kc_token,
+                    duplicate_phone,
+                    duplicate_status,
+                )
+                if duplicate_status == "PENDING":
+                    error = (
+                        "Data yang sama masih sedang diproses dari submit sebelumnya. "
+                        "Mohon tunggu hasilnya muncul di riwayat submit, lalu jangan kirim ulang."
+                    )
+                else:
+                    success_message = (
+                        "Data yang sama sudah pernah terkirim beberapa saat lalu, jadi sistem tidak mengirim ulang.\n\n"
+                        f"Nomor sebelumnya : {duplicate_phone}\n"
+                        f"Waktu submit : {duplicate_created_at}"
+                    )
+                    reset_form = True
+                    selected_age_range = "age-31-35"
+                    selected_has_purchased = ""
+                    selected_non_purchase_reason = ""
+                    selected_sp12_pack = DEFAULT_SP12_PACK
+                result = None
+                raise DuplicateSubmissionBlocked(duplicate_message)
+
             result = send_survey_request(
                 secret=secret,
                 base_url=base_url,
@@ -3063,6 +3201,8 @@ def user_app():
                     f"Response: {body_msg}"
                 )
 
+        except DuplicateSubmissionBlocked:
+            pass
         except Exception as e:
             logger.exception("submit route error")
             if submission_attempt_created:
@@ -3259,6 +3399,172 @@ def build_admin_dashboard_context(args):
     }
 
 
+def build_team_leader_dashboard_context(args):
+    token_rows = get_all_kc_tokens()
+
+    def parse_date_param(key):
+        val = (args.get(key) or "").strip()
+        if val:
+            try:
+                datetime.strptime(val, "%Y-%m-%d")
+                return val
+            except ValueError:
+                pass
+        return ""
+
+    selected_date_from = parse_date_param("date_from")
+    selected_date_to = parse_date_param("date_to")
+    selected_filter = (args.get("token_filter") or "").strip()
+    selected_status_filter = (args.get("token_status_filter") or "").strip().lower()
+    selected_area_filter = (args.get("token_area_filter") or "").strip()
+    selected_team_filter = (args.get("token_team_filter") or "").strip()
+    if selected_status_filter not in ("", "aktif", "nonaktif"):
+        selected_status_filter = ""
+    selected_rows = normalize_token_rows_param(args.get("token_rows", "10"))
+    selected_sort_by, selected_sort_dir = normalize_token_sort(
+        args.get("token_sort_by", "total_submit"),
+        args.get("token_sort_dir", "desc"),
+    )
+
+    usage_rows, usage_date = get_today_kc_usage_summary(
+        date_from=selected_date_from or None,
+        date_to=selected_date_to or None,
+    )
+    usage_by_token = {row["kc_token"]: row["total_submit"] for row in usage_rows}
+    purchase_counts_by_token = get_kc_purchase_counts(
+        date_from=selected_date_from,
+        date_to=selected_date_to,
+    )
+
+    leader_rows = []
+    for row in token_rows:
+        purchase_counts = purchase_counts_by_token.get(row["kc_token"], {})
+        total_submit = int(usage_by_token.get(row["kc_token"], 0) or 0)
+        daily_limit = int(row["daily_limit"] or 0)
+        leader_rows.append({
+            "kc_token": row["kc_token"],
+            "kc_name": row["kc_name"],
+            "team": row.get("team") or "-",
+            "token_area": row["token_area"] or "-",
+            "kc_username": row["kc_username"] or "-",
+            "daily_limit": daily_limit,
+            "total_submit": total_submit,
+            "purchase_yes": int(purchase_counts.get("purchase_yes", 0) or 0),
+            "purchase_no": int(purchase_counts.get("purchase_no", 0) or 0),
+            "lighter_yes": int(purchase_counts.get("lighter_yes", 0) or 0),
+            "is_active": row["is_active"],
+            "remaining_quota": max(0, daily_limit - total_submit),
+        })
+
+    token_area_options = sorted(
+        {str((r.get("token_area") or "")).strip() for r in token_rows if str((r.get("token_area") or "")).strip()},
+        key=str.lower,
+    )
+    token_team_options = sorted(
+        {str((r.get("team") or "")).strip() for r in token_rows if str((r.get("team") or "")).strip()},
+        key=str.lower,
+    )
+
+    filtered_rows_all, token_filtered_count = filter_sort_limit_token_rows(
+        rows=leader_rows,
+        filter_text=selected_filter,
+        status_filter=selected_status_filter,
+        area_filter=selected_area_filter,
+        team_filter=selected_team_filter,
+        sort_by=selected_sort_by,
+        sort_dir=selected_sort_dir,
+        rows_value="all",
+    )
+    visible_limit = token_rows_value_to_limit(selected_rows)
+    visible_rows = filtered_rows_all if visible_limit is None else filtered_rows_all[:visible_limit]
+
+    total_tokens = len(filtered_rows_all)
+    active_tokens = len([r for r in filtered_rows_all if r["is_active"] == 1])
+    total_submit = sum(r["total_submit"] for r in filtered_rows_all)
+    total_purchase_yes = sum(r["purchase_yes"] for r in filtered_rows_all)
+    total_purchase_no = sum(r["purchase_no"] for r in filtered_rows_all)
+    total_lighter_yes = sum(r["lighter_yes"] for r in filtered_rows_all)
+    total_remaining_quota = sum(r["remaining_quota"] for r in filtered_rows_all)
+    low_quota_count = len([r for r in filtered_rows_all if r["remaining_quota"] <= 10])
+
+    active_rows = [r for r in filtered_rows_all if r["is_active"] == 1]
+    top_submitter = max(active_rows, key=lambda r: (r["total_submit"], r["purchase_yes"], r["kc_name"])) if active_rows else None
+    top_buyer = max(active_rows, key=lambda r: (r["purchase_yes"], r["total_submit"], r["kc_name"])) if active_rows else None
+    zero_submit_rows = [r for r in filtered_rows_all if r["total_submit"] == 0]
+    low_quota_rows = sorted(
+        [r for r in filtered_rows_all if r["remaining_quota"] <= 10],
+        key=lambda r: (r["remaining_quota"], -r["total_submit"], str(r["kc_name"]).lower()),
+    )[:5]
+    inactive_rows = [r for r in filtered_rows_all if r["is_active"] != 1][:5]
+
+    token_meta_by_token = {
+        row["kc_token"]: {
+            "team": row.get("team") or "-",
+            "token_area": row.get("token_area") or "-",
+        }
+        for row in leader_rows
+    }
+    recent_submissions = get_recent_submission_attempts(
+        limit=60,
+        date_from=selected_date_from,
+        date_to=selected_date_to,
+    )
+    visible_token_set = {row["kc_token"] for row in filtered_rows_all}
+    filtered_recent_submissions = []
+    for row in recent_submissions:
+        meta = token_meta_by_token.get(row["kc_token"], {})
+        row_team = meta.get("team", "-")
+        row_area = meta.get("token_area", "-")
+        if row["kc_token"] not in visible_token_set:
+            continue
+        if selected_team_filter and str(row_team).strip().lower() != selected_team_filter.strip().lower():
+            continue
+        if selected_area_filter and str(row_area).strip().lower() != selected_area_filter.strip().lower():
+            continue
+        filtered_recent_submissions.append({
+            **row,
+            "team": row_team,
+            "token_area": row_area,
+        })
+    filtered_recent_submissions = filtered_recent_submissions[:10]
+
+    return {
+        "token_rows": visible_rows,
+        "usage_date": usage_date,
+        "total_tokens": total_tokens,
+        "active_tokens": active_tokens,
+        "total_submit": total_submit,
+        "total_purchase_yes": total_purchase_yes,
+        "total_purchase_no": total_purchase_no,
+        "total_lighter_yes": total_lighter_yes,
+        "total_remaining_quota": total_remaining_quota,
+        "low_quota_count": low_quota_count,
+        "recent_submissions": filtered_recent_submissions,
+        "selected_token_filter": selected_filter,
+        "selected_token_status_filter": selected_status_filter,
+        "selected_token_area_filter": selected_area_filter,
+        "selected_token_team_filter": selected_team_filter,
+        "selected_token_rows": selected_rows,
+        "selected_token_sort_by": selected_sort_by,
+        "selected_token_sort_dir": selected_sort_dir,
+        "token_filtered_count": token_filtered_count,
+        "token_visible_count": len(visible_rows),
+        "token_area_options": token_area_options,
+        "token_team_options": token_team_options,
+        "selected_date_from": selected_date_from,
+        "selected_date_to": selected_date_to,
+        "token_filter_help_text": get_token_filter_help_text(),
+        "top_submitter": top_submitter,
+        "top_buyer": top_buyer,
+        "zero_submit_rows": zero_submit_rows[:5],
+        "zero_submit_count": len(zero_submit_rows),
+        "low_quota_rows": low_quota_rows,
+        "low_quota_preview_count": len(low_quota_rows),
+        "inactive_rows": inactive_rows,
+        "inactive_count": len([r for r in filtered_rows_all if r["is_active"] != 1]),
+    }
+
+
 def build_admin_submissions_context(args):
     selected_status = (args.get("status") or "").strip()
     selected_kc_token = (args.get("kc_token") or "").strip()
@@ -3355,6 +3661,12 @@ def admin_dashboard():
 @admin_required
 def admin_dashboard_data():
     return jsonify(build_admin_dashboard_context(request.args))
+
+
+@app.route("/leader")
+@admin_required
+def team_leader_dashboard():
+    return render_template("team_leader_dashboard.html", **build_team_leader_dashboard_context(request.args))
 
 
 @app.route("/admin/token/add", methods=["GET", "POST"])

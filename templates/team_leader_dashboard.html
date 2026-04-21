@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="id">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard Team Leader</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(59, 130, 246, 0.10), transparent 30%),
+        #f8fafc;
+      color: #0f172a;
+    }
+    .container {
+      width: min(1600px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 22px 16px 40px;
+    }
+    .topbar, .insight-grid, .stats, .table-toolbar {
+      display: grid;
+      gap: 14px;
+    }
+    .topbar {
+      grid-template-columns: minmax(320px, 1fr) auto;
+      align-items: start;
+      margin-bottom: 18px;
+    }
+    .title h1 {
+      margin: 0;
+      font-size: 30px;
+    }
+    .title p {
+      margin: 8px 0 0;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #475569;
+      max-width: 760px;
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .btn {
+      border: none;
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 14px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      display: inline-block;
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      color: white;
+    }
+    .btn-secondary {
+      background: white;
+      color: #0f172a;
+      border: 1px solid #cbd5e1;
+    }
+    .panel, .card, .section {
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid rgba(226, 232, 240, 0.95);
+      border-radius: 22px;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.06);
+    }
+    .panel {
+      padding: 18px;
+      margin-bottom: 18px;
+    }
+    .section {
+      padding: 18px;
+      margin-bottom: 18px;
+      overflow-x: auto;
+    }
+    .section h2, .panel h2 {
+      margin: 0 0 8px;
+      font-size: 20px;
+    }
+    .section-desc, .helper {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #475569;
+    }
+    .table-toolbar {
+      grid-template-columns: minmax(220px, 1.4fr) repeat(6, minmax(120px, 180px)) auto auto;
+      align-items: end;
+      margin-top: 14px;
+    }
+    .field label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #475569;
+    }
+    .input {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 14px;
+      padding: 12px;
+      font-size: 14px;
+      color: #0f172a;
+      background: white;
+    }
+    .stats {
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      margin-bottom: 18px;
+    }
+    .card {
+      padding: 18px;
+      position: relative;
+      overflow: hidden;
+    }
+    .card::after {
+      content: "";
+      position: absolute;
+      inset: auto -24px -34px auto;
+      width: 96px;
+      height: 96px;
+      background: radial-gradient(circle, rgba(59, 130, 246, 0.16), transparent 68%);
+      pointer-events: none;
+    }
+    .card h3 {
+      margin: 0 0 8px;
+      font-size: 13px;
+      color: #64748b;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .big {
+      font-size: 30px;
+      font-weight: 700;
+      line-height: 1.05;
+    }
+    .sub {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #64748b;
+    }
+    .insight-grid {
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      margin-bottom: 18px;
+    }
+    .insight-card {
+      background: linear-gradient(180deg, #ffffff, #f8fbff);
+      border: 1px solid #dbeafe;
+      border-radius: 22px;
+      padding: 18px;
+    }
+    .insight-card h3 {
+      margin: 0 0 12px;
+      font-size: 18px;
+    }
+    .mini-list {
+      display: grid;
+      gap: 10px;
+    }
+    .mini-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: white;
+      border: 1px solid #e2e8f0;
+    }
+    .mini-item strong {
+      display: block;
+      font-size: 14px;
+    }
+    .mini-item span {
+      display: block;
+      margin-top: 3px;
+      font-size: 12px;
+      color: #64748b;
+    }
+    .mini-value {
+      font-size: 22px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .badge {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .badge-active { background: #dcfce7; color: #166534; }
+    .badge-inactive { background: #fee2e2; color: #991b1b; }
+    .status-soft {
+      color: #64748b;
+      font-size: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1180px;
+    }
+    th, td {
+      text-align: left;
+      padding: 12px 10px;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 14px;
+      vertical-align: top;
+    }
+    th {
+      font-size: 12px;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    code {
+      font-size: 12px;
+      word-break: break-all;
+    }
+    .hint {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #64748b;
+      line-height: 1.5;
+    }
+    @media (max-width: 920px) {
+      .topbar { grid-template-columns: 1fr; }
+      .actions { justify-content: flex-start; }
+      .table-toolbar { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div class="title">
+        <h1>Dashboard Team Leader</h1>
+        <p>Monitoring performa KC secara read-only untuk periode terpilih. Fokus halaman ini adalah tracking operasional tim, bukan pengelolaan token atau data sensitif.</p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-secondary" href="/admin">Kembali ke Admin</a>
+        <a class="btn btn-secondary" href="/user">Ke Form Submit</a>
+        <a class="btn" href="/leader">Refresh</a>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Filter Monitoring</h2>
+      <p class="helper">Pilih periode, area, team, dan status KC untuk melihat performa yang relevan untuk Team Leader.</p>
+      <form class="table-toolbar" method="get" action="/leader">
+        <div class="field">
+          <label for="token_filter">Cari KC</label>
+          <input class="input" id="token_filter" type="text" name="token_filter" value="{{ selected_token_filter }}" placeholder="Nama KC, area, team, username, status">
+        </div>
+        <div class="field">
+          <label for="date_from">Dari</label>
+          <input class="input" id="date_from" type="date" name="date_from" value="{{ selected_date_from }}">
+        </div>
+        <div class="field">
+          <label for="date_to">Sampai</label>
+          <input class="input" id="date_to" type="date" name="date_to" value="{{ selected_date_to }}">
+        </div>
+        <div class="field">
+          <label for="token_area_filter">Area</label>
+          <select class="input" id="token_area_filter" name="token_area_filter">
+            <option value="" {% if selected_token_area_filter == '' %}selected{% endif %}>Semua Area</option>
+            {% for area in token_area_options %}
+            <option value="{{ area }}" {% if selected_token_area_filter == area %}selected{% endif %}>{{ area }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="token_team_filter">Team</label>
+          <select class="input" id="token_team_filter" name="token_team_filter">
+            <option value="" {% if selected_token_team_filter == '' %}selected{% endif %}>Semua Team</option>
+            {% for team in token_team_options %}
+            <option value="{{ team }}" {% if selected_token_team_filter == team %}selected{% endif %}>{{ team }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label for="token_status_filter">Status</label>
+          <select class="input" id="token_status_filter" name="token_status_filter">
+            <option value="" {% if selected_token_status_filter == '' %}selected{% endif %}>Semua</option>
+            <option value="aktif" {% if selected_token_status_filter == 'aktif' %}selected{% endif %}>Aktif</option>
+            <option value="nonaktif" {% if selected_token_status_filter == 'nonaktif' %}selected{% endif %}>Nonaktif</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="token_rows">Tampilkan</label>
+          <select class="input" id="token_rows" name="token_rows">
+            <option value="3" {% if selected_token_rows == '3' %}selected{% endif %}>3</option>
+            <option value="10" {% if selected_token_rows == '10' %}selected{% endif %}>10</option>
+            <option value="100" {% if selected_token_rows == '100' %}selected{% endif %}>100</option>
+            <option value="all" {% if selected_token_rows == 'all' %}selected{% endif %}>Semua</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="token_sort_by">Sort</label>
+          <select class="input" id="token_sort_by" name="token_sort_by">
+            <option value="total_submit" {% if selected_token_sort_by == 'total_submit' %}selected{% endif %}>Total Submit</option>
+            <option value="kc_name" {% if selected_token_sort_by == 'kc_name' %}selected{% endif %}>Nama KC</option>
+            <option value="team" {% if selected_token_sort_by == 'team' %}selected{% endif %}>Team</option>
+            <option value="token_area" {% if selected_token_sort_by == 'token_area' %}selected{% endif %}>Area</option>
+            <option value="kc_username" {% if selected_token_sort_by == 'kc_username' %}selected{% endif %}>Username</option>
+            <option value="daily_limit" {% if selected_token_sort_by == 'daily_limit' %}selected{% endif %}>Limit Harian</option>
+            <option value="is_active" {% if selected_token_sort_by == 'is_active' %}selected{% endif %}>Status</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="token_sort_dir">Arah</label>
+          <select class="input" id="token_sort_dir" name="token_sort_dir">
+            <option value="asc" {% if selected_token_sort_dir == 'asc' %}selected{% endif %}>Naik</option>
+            <option value="desc" {% if selected_token_sort_dir == 'desc' %}selected{% endif %}>Turun</option>
+          </select>
+        </div>
+        <button class="btn" type="submit">Terapkan</button>
+        <a class="btn btn-secondary" href="/leader">Reset</a>
+      </form>
+      <div class="hint">{{ token_filter_help_text }}</div>
+    </div>
+
+    <div class="stats">
+      <div class="card">
+        <h3>Total KC</h3>
+        <div class="big">{{ total_tokens }}</div>
+        <div class="sub">KC yang masuk hasil filter</div>
+      </div>
+      <div class="card">
+        <h3>KC Aktif</h3>
+        <div class="big">{{ active_tokens }}</div>
+        <div class="sub">Token aktif untuk periode {{ usage_date }}</div>
+      </div>
+      <div class="card">
+        <h3>Total Submit (NOC)</h3>
+        <div class="big">{{ total_submit }}</div>
+        <div class="sub">Akumulasi submit dari KC terfilter</div>
+      </div>
+      <div class="card">
+        <h3>Beli (NOT)</h3>
+        <div class="big">{{ total_purchase_yes }}</div>
+        <div class="sub">Total customer yang beli</div>
+      </div>
+      <div class="card">
+        <h3>Tidak Beli</h3>
+        <div class="big">{{ total_purchase_no }}</div>
+        <div class="sub">Total customer yang tidak beli</div>
+      </div>
+      <div class="card">
+        <h3>Lighter</h3>
+        <div class="big">{{ total_lighter_yes }}</div>
+        <div class="sub">Total transaksi dengan lighter</div>
+      </div>
+      <div class="card">
+        <h3>Sisa Kuota</h3>
+        <div class="big">{{ total_remaining_quota }}</div>
+        <div class="sub">{{ low_quota_count }} KC sisa kuotanya 10 atau kurang</div>
+      </div>
+    </div>
+
+    <div class="insight-grid">
+      <div class="insight-card">
+        <h3>Top Performer</h3>
+        <div class="mini-list">
+          <div class="mini-item">
+            <div>
+              <strong>{{ top_submitter.kc_name if top_submitter else 'Belum ada data' }}</strong>
+              <span>{{ top_submitter.team if top_submitter else '-' }} • {{ top_submitter.token_area if top_submitter else '-' }} • Submit tertinggi</span>
+            </div>
+            <div class="mini-value">{{ top_submitter.total_submit if top_submitter else 0 }}</div>
+          </div>
+          <div class="mini-item">
+            <div>
+              <strong>{{ top_buyer.kc_name if top_buyer else 'Belum ada data' }}</strong>
+              <span>{{ top_buyer.team if top_buyer else '-' }} • {{ top_buyer.token_area if top_buyer else '-' }} • Beli tertinggi</span>
+            </div>
+            <div class="mini-value">{{ top_buyer.purchase_yes if top_buyer else 0 }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="insight-card">
+        <h3>Perlu Perhatian</h3>
+        <div class="mini-list">
+          <div class="mini-item">
+            <div>
+              <strong>KC tanpa submit</strong>
+              <span>Jumlah KC yang belum menghasilkan submit pada periode terpilih</span>
+            </div>
+            <div class="mini-value">{{ zero_submit_count }}</div>
+          </div>
+          <div class="mini-item">
+            <div>
+              <strong>KC kuota menipis</strong>
+              <span>Prioritas follow-up untuk sisa kuota 10 atau kurang</span>
+            </div>
+            <div class="mini-value">{{ low_quota_count }}</div>
+          </div>
+          <div class="mini-item">
+            <div>
+              <strong>KC nonaktif</strong>
+              <span>Perlu dicek apakah memang sengaja dinonaktifkan</span>
+            </div>
+            <div class="mini-value">{{ inactive_count }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Monitoring KC</h2>
+      <p class="section-desc">Menampilkan {{ token_visible_count }} dari {{ token_filtered_count }} KC hasil filter untuk periode {{ usage_date }}.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Nama KC</th>
+            <th>Team</th>
+            <th>Area</th>
+            <th>Username</th>
+            <th>Status</th>
+            <th>Limit</th>
+            <th>Total Submit (NOC)</th>
+            <th>Beli (NOT)</th>
+            <th>Tidak Beli</th>
+            <th>Lighter</th>
+            <th>Sisa Kuota</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in token_rows %}
+          <tr>
+            <td>{{ row.kc_name }}</td>
+            <td>{{ row.team }}</td>
+            <td>{{ row.token_area }}</td>
+            <td>{{ row.kc_username }}</td>
+            <td>
+              {% if row.is_active == 1 %}
+              <span class="badge badge-active">Aktif</span>
+              {% else %}
+              <span class="badge badge-inactive">Nonaktif</span>
+              {% endif %}
+            </td>
+            <td>{{ row.daily_limit }}</td>
+            <td>{{ row.total_submit }}</td>
+            <td>{{ row.purchase_yes }}</td>
+            <td>{{ row.purchase_no }}</td>
+            <td>{{ row.lighter_yes }}</td>
+            <td>{{ row.remaining_quota }}</td>
+          </tr>
+          {% endfor %}
+          {% if not token_rows %}
+          <tr>
+            <td colspan="11">Belum ada data KC untuk filter ini.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>Aktivitas Submit Terbaru</h2>
+      <p class="section-desc">Ringkasan cepat submit paling baru dari KC yang masuk filter, tanpa menampilkan password atau bearer token.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Waktu</th>
+            <th>Nama KC</th>
+            <th>Team</th>
+            <th>Area</th>
+            <th>Status</th>
+            <th>HTTP</th>
+            <th>Nomor HP</th>
+            <th>Customer</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in recent_submissions %}
+          <tr>
+            <td>{{ row.created_at }}</td>
+            <td>{{ row.kc_name }}</td>
+            <td>{{ row.team }}</td>
+            <td>{{ row.token_area }}</td>
+            <td>{{ row.status_local }}</td>
+            <td>{{ row.final_status_code or '-' }}</td>
+            <td><code>{{ row.phone_number }}</code></td>
+            <td>{{ row.request_summary.customer_name if row.request_summary else '-' }}</td>
+          </tr>
+          {% endfor %}
+          {% if not recent_submissions %}
+          <tr>
+            <td colspan="8">Belum ada aktivitas submit pada periode ini.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+
+</html>
