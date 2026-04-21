@@ -243,7 +243,7 @@
 
     .table-toolbar {
       display: grid;
-      grid-template-columns: minmax(180px, 1fr) minmax(150px, 180px) minmax(120px, 150px) minmax(110px, 140px) auto auto;
+      grid-template-columns: minmax(180px, 1fr) minmax(140px, 170px) minmax(140px, 170px) minmax(150px, 180px) minmax(120px, 150px) minmax(110px, 140px) auto auto;
       gap: 10px;
       align-items: end;
       margin: 14px 0;
@@ -422,6 +422,24 @@
             value="{{ selected_token_filter }}" placeholder="Nama KC, team, area, token, username, status">
         </div>
         <div class="toolbar-field">
+          <label for="token_area_filter">Area</label>
+          <select class="input" id="token_area_filter" name="token_area_filter">
+            <option value="" {% if selected_token_area_filter == '' %}selected{% endif %}>Semua Area</option>
+            {% for area in token_area_options %}
+            <option value="{{ area }}" {% if selected_token_area_filter == area %}selected{% endif %}>{{ area }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="toolbar-field">
+          <label for="token_team_filter">Team</label>
+          <select class="input" id="token_team_filter" name="token_team_filter">
+            <option value="" {% if selected_token_team_filter == '' %}selected{% endif %}>Semua Team</option>
+            {% for team in token_team_options %}
+            <option value="{{ team }}" {% if selected_token_team_filter == team %}selected{% endif %}>{{ team }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="toolbar-field">
           <label for="token_status_filter">Status</label>
           <select class="input" id="token_status_filter" name="token_status_filter">
             <option value="" {% if selected_token_status_filter == '' %}selected{% endif %}>Semua</option>
@@ -545,6 +563,8 @@
       <p class="section-desc">Ringkasan pemakaian token untuk submit form utama.</p>
       <form class="table-toolbar" id="usageToolbarForm" method="get" action="/admin">
         <input type="hidden" name="token_filter" value="{{ selected_token_filter }}">
+        <input type="hidden" name="token_area_filter" value="{{ selected_token_area_filter }}">
+        <input type="hidden" name="token_team_filter" value="{{ selected_token_team_filter }}">
         <input type="hidden" name="token_status_filter" value="{{ selected_token_status_filter }}">
         <input type="hidden" name="token_sort_by" value="{{ selected_token_sort_by }}">
         <input type="hidden" name="token_sort_dir" value="{{ selected_token_sort_dir }}">
@@ -687,7 +707,7 @@
     }
 
     function syncUsageHiddenFields() {
-      const mappings = ['token_filter', 'token_status_filter', 'token_sort_by', 'token_sort_dir', 'token_rows'];
+      const mappings = ['token_filter', 'token_area_filter', 'token_team_filter', 'token_status_filter', 'token_sort_by', 'token_sort_dir', 'token_rows'];
       mappings.forEach((name) => {
         const tokenInput = tokenToolbarForm.elements[name];
         const usageInput = usageToolbarForm.elements[name];
@@ -698,7 +718,7 @@
     function buildDashboardQuery() {
       syncUsageHiddenFields();
       const params = new URLSearchParams();
-      ['token_filter', 'token_status_filter', 'token_sort_by', 'token_sort_dir', 'token_rows'].forEach((name) => {
+      ['token_filter', 'token_area_filter', 'token_team_filter', 'token_status_filter', 'token_sort_by', 'token_sort_dir', 'token_rows'].forEach((name) => {
         const value = tokenToolbarForm.elements[name]?.value ?? '';
         if (value) params.set(name, value);
       });
@@ -805,6 +825,8 @@
       document.getElementById('tokenStatsSubmit').textContent = data.total_submit_today;
 
       tokenToolbarForm.elements.token_filter.value = data.selected_token_filter || '';
+      tokenToolbarForm.elements.token_area_filter.value = data.selected_token_area_filter || '';
+      tokenToolbarForm.elements.token_team_filter.value = data.selected_token_team_filter || '';
       tokenToolbarForm.elements.token_status_filter.value = data.selected_token_status_filter || '';
       tokenToolbarForm.elements.token_sort_by.value = data.selected_token_sort_by || 'kc_name';
       tokenToolbarForm.elements.token_sort_dir.value = data.selected_token_sort_dir || 'asc';
@@ -893,6 +915,8 @@
       event.preventDefault();
       tokenToolbarForm.reset();
       tokenToolbarForm.elements.token_filter.value = '';
+      tokenToolbarForm.elements.token_area_filter.value = '';
+      tokenToolbarForm.elements.token_team_filter.value = '';
       tokenToolbarForm.elements.token_status_filter.value = '';
       tokenToolbarForm.elements.token_sort_by.value = 'kc_name';
       tokenToolbarForm.elements.token_sort_dir.value = 'asc';
@@ -949,7 +973,7 @@
       }
     });
 
-    ['token_status_filter', 'token_sort_by', 'token_sort_dir', 'token_rows'].forEach((name) => {
+    ['token_area_filter', 'token_team_filter', 'token_status_filter', 'token_sort_by', 'token_sort_dir', 'token_rows'].forEach((name) => {
       tokenToolbarForm.elements[name].addEventListener('change', () => refreshDashboardData());
     });
 

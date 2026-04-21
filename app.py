@@ -1676,9 +1676,11 @@ def get_token_sort_value(row, sort_by):
     return str(row.get(sort_by) or "").lower()
 
 
-def filter_sort_limit_token_rows(rows, filter_text="", status_filter="", sort_by="kc_name", sort_dir="asc", rows_value="10"):
+def filter_sort_limit_token_rows(rows, filter_text="", status_filter="", area_filter="", team_filter="", sort_by="kc_name", sort_dir="asc", rows_value="10"):
     current_filter = str(filter_text or "").strip().lower()
     current_status = str(status_filter or "").strip().lower()
+    current_area = str(area_filter or "").strip().lower()
+    current_team = str(team_filter or "").strip().lower()
     sort_by, sort_dir = normalize_token_sort(sort_by, sort_dir)
     rows_value = normalize_token_rows_param(rows_value)
 
@@ -1687,6 +1689,12 @@ def filter_sort_limit_token_rows(rows, filter_text="", status_filter="", sort_by
         filtered_rows = [row for row in filtered_rows if row.get("is_active") == 1]
     elif current_status == "nonaktif":
         filtered_rows = [row for row in filtered_rows if row.get("is_active") != 1]
+
+    if current_area:
+        filtered_rows = [row for row in filtered_rows if str(row.get("token_area") or "").strip().lower() == current_area]
+
+    if current_team:
+        filtered_rows = [row for row in filtered_rows if str(row.get("team") or "").strip().lower() == current_team]
 
     if current_filter:
         filter_terms = [term.strip() for term in re.split(r"[\r\n,;|]+", current_filter) if term.strip()]
@@ -3146,6 +3154,8 @@ def build_admin_dashboard_context(args):
 
     selected_token_filter = (args.get("token_filter") or "").strip()
     selected_token_status_filter = (args.get("token_status_filter") or "").strip().lower()
+    selected_token_area_filter = (args.get("token_area_filter") or "").strip()
+    selected_token_team_filter = (args.get("token_team_filter") or "").strip()
     if selected_token_status_filter not in ("", "aktif", "nonaktif"):
         selected_token_status_filter = ""
     selected_token_rows = normalize_token_rows_param(args.get("token_rows", "10"))
@@ -3157,6 +3167,8 @@ def build_admin_dashboard_context(args):
     total_tokens = len(token_rows)
     active_tokens = len([r for r in token_rows if r["is_active"] == 1])
     total_submit_today = sum(r["total_submit"] for r in usage_rows)
+    token_area_options = sorted({str((r.get("token_area") or "")).strip() for r in token_rows if str((r.get("token_area") or "")).strip()}, key=str.lower)
+    token_team_options = sorted({str((r.get("team") or "")).strip() for r in token_rows if str((r.get("team") or "")).strip()}, key=str.lower)
 
     usage_by_token = {row["kc_token"]: row["total_submit"] for row in usage_rows}
     purchase_counts_by_token = get_kc_purchase_counts(
@@ -3187,6 +3199,8 @@ def build_admin_dashboard_context(args):
         rows=masked_token_rows,
         filter_text=selected_token_filter,
         status_filter=selected_token_status_filter,
+        area_filter=selected_token_area_filter,
+        team_filter=selected_token_team_filter,
         sort_by=selected_token_sort_by,
         sort_dir=selected_token_sort_dir,
         rows_value=selected_token_rows,
@@ -3221,11 +3235,15 @@ def build_admin_dashboard_context(args):
         "token_import_error": args.get("token_import_error", ""),
         "selected_token_filter": selected_token_filter,
         "selected_token_status_filter": selected_token_status_filter,
+        "selected_token_area_filter": selected_token_area_filter,
+        "selected_token_team_filter": selected_token_team_filter,
         "selected_token_rows": selected_token_rows,
         "selected_token_sort_by": selected_token_sort_by,
         "selected_token_sort_dir": selected_token_sort_dir,
         "token_filtered_count": token_filtered_count,
         "token_visible_count": len(masked_token_rows),
+        "token_area_options": token_area_options,
+        "token_team_options": token_team_options,
         "selected_usage_date_from": selected_usage_date_from,
         "selected_usage_date_to": selected_usage_date_to,
         "token_filter_help_text": get_token_filter_help_text(),
