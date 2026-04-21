@@ -214,6 +214,17 @@
         </div>
 
         <div class="field">
+          <label>Team</label>
+          <input
+            class="input"
+            type="text"
+            name="team"
+            value="{% if token_data %}{{ token_data.team }}{% endif %}"
+            placeholder="Contoh: Team A"
+          >
+        </div>
+
+        <div class="field">
           <label>Username</label>
           <input
             class="input"

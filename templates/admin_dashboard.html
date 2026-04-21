@@ -419,7 +419,7 @@
         <div class="toolbar-field">
           <label for="token_filter">Filter</label>
           <input class="input" id="token_filter" type="text" name="token_filter"
-            value="{{ selected_token_filter }}" placeholder="Nama KC, area, token, username, status">
+            value="{{ selected_token_filter }}" placeholder="Nama KC, team, area, token, username, status">
         </div>
         <div class="toolbar-field">
           <label for="token_status_filter">Status</label>
@@ -433,6 +433,7 @@
           <label for="token_sort_by">Sort</label>
           <select class="input" id="token_sort_by" name="token_sort_by">
             <option value="kc_name" {% if selected_token_sort_by == 'kc_name' %}selected{% endif %}>Nama KC</option>
+            <option value="team" {% if selected_token_sort_by == 'team' %}selected{% endif %}>Team</option>
             <option value="token_area" {% if selected_token_sort_by == 'token_area' %}selected{% endif %}>Area</option>
             <option value="kc_token" {% if selected_token_sort_by == 'kc_token' %}selected{% endif %}>KC Token</option>
             <option value="kc_username" {% if selected_token_sort_by == 'kc_username' %}selected{% endif %}>Username</option>
@@ -460,6 +461,7 @@
         <button class="btn btn-sm" type="submit">Terapkan</button>
         <a class="btn btn-sm btn-secondary" id="tokenToolbarReset" href="/admin">Reset</a>
       </form>
+      <div class="hint" style="margin-top: -4px; margin-bottom: 10px;">{{ token_filter_help_text }}</div>
       <div class="row-actions" style="margin-bottom: 12px;">
         <form class="inline" id="resetAllUsageTodayForm" method="post" action="/admin/token/reset-usage-today">
           <button class="btn btn-sm btn-warning" type="submit">Reset Semua Terpakai Hari Ini</button>
@@ -470,6 +472,7 @@
         <thead>
           <tr>
             <th>Nama KC</th>
+            <th>Team</th>
             <th>Area</th>
             <th>KC Token</th>
             <th>Username</th>
@@ -488,6 +491,7 @@
           {% for row in token_rows %}
           <tr>
             <td>{{ row.kc_name }}</td>
+            <td>{{ row.team }}</td>
             <td>{{ row.token_area }}</td>
             <td><code>{{ row.kc_token }}</code></td>
             <td>{{ row.kc_username }}</td>
@@ -529,7 +533,7 @@
           {% endfor %}
           {% if not token_rows %}
           <tr>
-            <td colspan="13">Belum ada KC token.</td>
+            <td colspan="14">Belum ada KC token.</td>
           </tr>
           {% endif %}
         </tbody>
@@ -722,7 +726,7 @@
 
     function renderTokenRows(rows) {
       if (!rows.length) {
-        tokenTableBody.innerHTML = '<tr><td colspan="13">Belum ada KC token.</td></tr>';
+        tokenTableBody.innerHTML = '<tr><td colspan="14">Belum ada KC token.</td></tr>';
         return;
       }
 
@@ -735,6 +739,7 @@
         return `
           <tr>
             <td>${escapeHtml(row.kc_name)}</td>
+            <td>${escapeHtml(row.team ?? '-')}</td>
             <td>${escapeHtml(row.token_area)}</td>
             <td><code>${escapeHtml(row.kc_token)}</code></td>
             <td>${escapeHtml(row.kc_username)}</td>
