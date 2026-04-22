@@ -695,6 +695,7 @@
     const loadingStatus = document.getElementById('loadingStatus');
     const loadingTimer = document.getElementById('loadingTimer');
     const shouldResetFormAfterSubmit = {{ reset_form|tojson }};
+    const delayedResetSeconds = {{ delayed_reset_seconds|tojson }};
     const masterDataCacheKey = {{ ('kc_master_data::' ~ kc_token)|tojson }};
     const masterDataCacheTtlMs = 6 * 60 * 60 * 1000;
     const kcAreaMinSearchChars = 2;
@@ -1288,6 +1289,13 @@
       buildProductTransactions();
       updatePurchaseFields();
       if (shouldResetFormAfterSubmit) resetSurveyFormView();
+      if (delayedResetSeconds > 0) {
+        window.setTimeout(() => {
+          resetSurveyFormView();
+          const nameInput = document.querySelector('input[name="customer_name"]');
+          if (nameInput) nameInput.focus();
+        }, delayedResetSeconds * 1000);
+      }
       loadMasterData();
       const nameInput = document.querySelector('input[name="customer_name"]');
       if (nameInput) nameInput.focus();

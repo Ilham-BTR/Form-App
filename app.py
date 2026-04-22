@@ -106,6 +106,7 @@ DATABASE_URL = require_env("DATABASE_URL")
 DEFAULT_DAILY_LIMIT = 40
 RESERVED_PHONE_TIMEOUT_MINUTES = get_positive_int_env("RESERVED_PHONE_TIMEOUT_MINUTES", 120)
 DUPLICATE_SUBMISSION_WINDOW_MINUTES = get_positive_int_env("DUPLICATE_SUBMISSION_WINDOW_MINUTES", 10)
+PENDING_DUPLICATE_BLOCK_SECONDS = get_positive_int_env("PENDING_DUPLICATE_BLOCK_SECONDS", 30)
 SUBMISSION_LOG_LIMIT_OPTIONS = ["25", "50", "100", "200", "500", "1000", "10000", "all"]
 MAX_SUBMISSION_LOG_LIMIT = 10000
 
@@ -2325,6 +2326,7 @@ def canonicalize_product_transactions(value):
 def build_submission_identity_payload(request_summary):
     summary = request_summary or {}
     return {
+        "phone_number": normalize_submission_identity_text(summary.get("phone_number")),
         "kc_name": normalize_submission_identity_text(summary.get("kc_name")),
         "customer_name": normalize_submission_identity_text(summary.get("customer_name")),
         "age_range": normalize_submission_identity_text(summary.get("age_range")),
@@ -2345,6 +2347,18 @@ def build_submission_identity_key(request_summary):
 
 class DuplicateSubmissionBlocked(Exception):
     pass
+
+
+def is_pending_duplicate_still_blocking(created_at_value):
+    raw_value = str(created_at_value or "").strip()
+    if not raw_value:
+        return False
+    try:
+        created_at = datetime.strptime(raw_value[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return False
+    age_seconds = (get_now_wib() - created_at).total_seconds()
+    return age_seconds <= PENDING_DUPLICATE_BLOCK_SECONDS
 
 
 def find_recent_duplicate_submission(kc_token, request_summary, exclude_submission_id=None):
@@ -2370,6 +2384,8 @@ def find_recent_duplicate_submission(kc_token, request_summary, exclude_submissi
 
     for row in rows:
         if exclude_submission_id and row["submission_id"] == exclude_submission_id:
+            continue
+        if row["status_local"] == "PENDING" and not is_pending_duplicate_still_blocking(row["created_at"]):
             continue
         try:
             existing_summary = json.loads(row["request_summary_json"] or "{}")
@@ -2917,6 +2933,7 @@ def user_app():
     can_retry_failed_submit = False
     success_message = None
     reset_form = False
+    delayed_reset_seconds = 0
     result = None
     selected_age_range = request.form.get("age_range", "age-31-35")
     selected_has_purchased = (request.form.get("has_purchased") or "").strip().lower()
@@ -3037,6 +3054,7 @@ def user_app():
 
             request_summary = {
                 "stage": "SUBMITTING_TO_API",
+                "phone_number": phone_number,
                 "kc_name": kc_name,
                 "customer_name": customer_name,
                 "age_range": age_range,
@@ -3083,8 +3101,10 @@ def user_app():
                 if duplicate_status == "PENDING":
                     error = (
                         "Data yang sama masih sedang diproses dari submit sebelumnya. "
-                        "Mohon tunggu hasilnya muncul di riwayat submit, lalu jangan kirim ulang."
+                        f"Form ini akan direset otomatis dalam {PENDING_DUPLICATE_BLOCK_SECONDS} detik. "
+                        "Setelah reset, isi ulang dan ganti nama customer sebelum kirim lagi."
                     )
+                    delayed_reset_seconds = PENDING_DUPLICATE_BLOCK_SECONDS
                 else:
                     success_message = (
                         "Data yang sama sudah pernah terkirim beberapa saat lalu, jadi sistem tidak mengirim ulang.\n\n"
@@ -3303,6 +3323,7 @@ def user_app():
         selected_sp12_pack=selected_sp12_pack,
         assigned_phone_number=assigned_phone_number or "",
         reset_form=reset_form,
+        delayed_reset_seconds=delayed_reset_seconds,
         kc_token=kc_token,
     )
 
