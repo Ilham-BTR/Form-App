@@ -708,6 +708,7 @@
     let allBumoOptions = [];
     let allKcAreaOptions = [];
     let isSubmitting = false;
+    let allowSubmitNavigation = false;
     let loadingStartedAt = 0;
     let loadingTimerId = null;
     let loadingPhase = 'idle';
@@ -1256,6 +1257,7 @@
 
         e.preventDefault();
         isSubmitting = true;
+        allowSubmitNavigation = false;
         setSubmitLoading(true);
         showLoadingOverlay('compressing');
         setLoadingPhase('compressing', 'Mengompres gambar di browser. Target sekitar 500 KB per file.');
@@ -1269,6 +1271,7 @@
         }
 
         setLoadingPhase('submitting', submitMessage);
+        allowSubmitNavigation = true;
         HTMLFormElement.prototype.submit.call(surveyForm);
       });
     }
@@ -1276,11 +1279,12 @@
     window.addEventListener('pageshow', function () {
       hideLoadingOverlay();
       isSubmitting = false;
+      allowSubmitNavigation = false;
       setSubmitLoading(false);
     });
 
     window.addEventListener('beforeunload', function (event) {
-      if (!isSubmitting) return;
+      if (!isSubmitting || allowSubmitNavigation) return;
       event.preventDefault();
       event.returnValue = '';
     });

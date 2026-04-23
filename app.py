@@ -26,13 +26,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from openpyxl import Workbook, load_workbook
 
 
-def require_env(name: str) -> str:
-    value = os.environ.get(name, "").strip()
-    if not value:
-        raise RuntimeError(f"Environment variable {name} wajib diisi.")
-    return value
-
-
 def get_positive_int_env(name: str, default: int) -> int:
     raw_value = os.environ.get(name, "").strip()
     if not raw_value:
@@ -46,9 +39,33 @@ def get_positive_int_env(name: str, default: int) -> int:
 
 APP_ENV = os.environ.get("APP_ENV", "development").strip().lower()
 IS_PROD = APP_ENV == "production"
+BOOTSTRAP_WARNINGS = []
+
+
+def emit_bootstrap_warning(message: str) -> None:
+    BOOTSTRAP_WARNINGS.append(message)
+    print(f"[config warning] {message}")
+
+
+def require_env(name: str, default_dev: str | None = None, allow_empty_in_dev: bool = False) -> str:
+    value = os.environ.get(name, "").strip()
+    if value:
+        return value
+    if not IS_PROD:
+        if default_dev is not None:
+            emit_bootstrap_warning(
+                f"Environment variable {name} belum diisi. Memakai default development sementara."
+            )
+            return default_dev
+        if allow_empty_in_dev:
+            emit_bootstrap_warning(
+                f"Environment variable {name} belum diisi. Fitur yang butuh konfigurasi ini akan nonaktif."
+            )
+            return ""
+    raise RuntimeError(f"Environment variable {name} wajib diisi.")
 
 app = Flask(__name__)
-app.secret_key = require_env("FLASK_SECRET_KEY")
+app.secret_key = require_env("FLASK_SECRET_KEY", default_dev="dev-secret-key-change-me")
 
 logger = logging.getLogger("kc_submit_app")
 if not logger.handlers:
@@ -60,9 +77,11 @@ if not logger.handlers:
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
     logger.addHandler(stream_handler)
+for bootstrap_warning in BOOTSTRAP_WARNINGS:
+    logger.warning(bootstrap_warning)
 
 
-APP_HMAC_SECRET = require_env("APP_HMAC_SECRET")
+APP_HMAC_SECRET = require_env("APP_HMAC_SECRET", default_dev="dev-app-hmac-secret-change-me")
 MASTERDATA_HMAC_SECRET = os.environ.get("MASTERDATA_HMAC_SECRET", APP_HMAC_SECRET).strip()
 DEFAULT_BASE_URL = os.environ.get(
     "DEFAULT_BASE_URL",
@@ -102,7 +121,7 @@ AGE_RANGE_OPTIONS = [
 VALID_AGE_RANGES = {value for value, _label in AGE_RANGE_OPTIONS}
 
 
-DATABASE_URL = require_env("DATABASE_URL")
+DATABASE_URL = require_env("DATABASE_URL", allow_empty_in_dev=True)
 DEFAULT_DAILY_LIMIT = 40
 RESERVED_PHONE_TIMEOUT_MINUTES = get_positive_int_env("RESERVED_PHONE_TIMEOUT_MINUTES", 120)
 DUPLICATE_SUBMISSION_WINDOW_MINUTES = get_positive_int_env("DUPLICATE_SUBMISSION_WINDOW_MINUTES", 10)
@@ -110,11 +129,13 @@ PENDING_DUPLICATE_BLOCK_SECONDS = get_positive_int_env("PENDING_DUPLICATE_BLOCK_
 SUBMISSION_LOG_LIMIT_OPTIONS = ["25", "50", "100", "200", "500", "1000", "10000", "all"]
 MAX_SUBMISSION_LOG_LIMIT = 10000
 
-ADMIN_PAGE_USERNAME = require_env("ADMIN_PAGE_USERNAME")
-ADMIN_PAGE_PASSWORD = require_env("ADMIN_PAGE_PASSWORD")
+ADMIN_PAGE_USERNAME = require_env("ADMIN_PAGE_USERNAME", default_dev="admin")
+ADMIN_PAGE_PASSWORD = require_env("ADMIN_PAGE_PASSWORD", default_dev="admin123")
 
 
 def get_db_connection():
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL belum di-set. Tambahkan ke environment atau file .env untuk mengaktifkan fitur database.")
     conn = connect(DATABASE_URL, row_factory=dict_row, autocommit=False)
     return conn
 
@@ -150,6 +171,9 @@ def normalize_has_purchased_value(value):
 
 
 def init_db():
+    if not DATABASE_URL:
+        logger.warning("init_db dilewati karena DATABASE_URL belum tersedia.")
+        return
     conn = get_db_connection()
     cur = conn.cursor()
 
