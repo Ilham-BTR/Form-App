@@ -1900,6 +1900,20 @@ def toggle_kc_token_status(kc_token):
     conn.close()
 
 
+def deactivate_all_kc_tokens():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE valid_kc_tokens
+        SET is_active = 0
+        WHERE is_active = 1
+    """)
+    updated_count = cur.rowcount
+    conn.commit()
+    conn.close()
+    return updated_count
+
+
 def delete_kc_token(kc_token):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -4360,6 +4374,17 @@ def admin_toggle_token(kc_token):
     if wants_json_response():
         return jsonify({"success": False, "error": "KC token tidak ditemukan."}), 404
     return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/tokens/deactivate-all", methods=["POST"])
+@admin_required
+def admin_deactivate_all_tokens():
+    deactivated_count = deactivate_all_kc_tokens()
+    if session.get("kc_token"):
+        clear_user_session()
+    if wants_json_response():
+        return jsonify({"success": True, "deactivated_count": deactivated_count})
+    return redirect(request.referrer or url_for("admin_dashboard"))
 
 
 @app.route("/admin/token/<path:kc_token>/delete", methods=["POST"])

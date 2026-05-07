@@ -486,6 +486,9 @@
         <form class="inline" id="resetAllUsageTodayForm" method="post" action="/admin/token/reset-usage-today">
           <button class="btn btn-sm btn-warning" type="submit">Reset Semua Terpakai Hari Ini</button>
         </form>
+        <form class="inline" id="deactivateAllTokensForm" method="post" action="/admin/tokens/deactivate-all">
+          <button class="btn btn-sm btn-danger" type="submit">Nonaktifkan Semua Akun</button>
+        </form>
       </div>
       <div class="hint" id="tokenFilterHint">Menampilkan {{ token_visible_count }} dari {{ token_filtered_count }} token hasil filter.</div>
       <table>
@@ -675,6 +678,7 @@
     const usageExportLink = document.getElementById('usageExportLink');
     const ajaxMessage = document.getElementById('dashboardAjaxMessage');
     const resetAllUsageTodayForm = document.getElementById('resetAllUsageTodayForm');
+    const deactivateAllTokensForm = document.getElementById('deactivateAllTokensForm');
     let toastTimer = null;
 
     function escapeHtml(value) {
@@ -687,7 +691,7 @@
     }
 
     function setLoading(isLoading) {
-      [tokenToolbarForm, usageToolbarForm, tokenTableBody, usageTableBody, resetAllUsageTodayForm]
+      [tokenToolbarForm, usageToolbarForm, tokenTableBody, usageTableBody, resetAllUsageTodayForm, deactivateAllTokensForm]
         .filter(Boolean)
         .forEach((el) => el.classList.toggle('is-loading', isLoading));
     }
@@ -942,6 +946,18 @@
         await refreshDashboardData({ message: `Reset selesai. ${data.reset_count} token di-nolkan untuk ${data.usage_date}.` });
       } catch (err) {
         showMessage(err.message || 'Gagal reset semua usage hari ini.', true);
+      }
+    });
+
+    deactivateAllTokensForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!confirm('Nonaktifkan semua akun KC token? Semua user tidak bisa submit sampai token diaktifkan lagi.')) return;
+      const button = deactivateAllTokensForm.querySelector('button[type="submit"]');
+      try {
+        const data = await postJson(deactivateAllTokensForm.action, button);
+        await refreshDashboardData({ message: `${data.deactivated_count} akun berhasil dinonaktifkan.` });
+      } catch (err) {
+        showMessage(err.message || 'Gagal menonaktifkan semua akun.', true);
       }
     });
 
