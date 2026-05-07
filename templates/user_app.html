@@ -390,6 +390,45 @@
       display: inline-block;
     }
 
+    .photo-preview {
+      display: grid;
+      grid-template-columns: 92px 1fr;
+      gap: 10px;
+      align-items: center;
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+
+    .photo-preview.hidden {
+      display: none;
+    }
+
+    .photo-preview img {
+      width: 92px;
+      height: 92px;
+      object-fit: cover;
+      border-radius: 6px;
+      background: #e2e8f0;
+    }
+
+    .photo-preview-name {
+      margin: 0;
+      color: #0f172a;
+      font-size: 13px;
+      font-weight: 700;
+      word-break: break-word;
+    }
+
+    .photo-preview-meta {
+      margin: 5px 0 0;
+      color: #64748b;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
     .loading-overlay {
       position: fixed;
       inset: 0;
@@ -636,12 +675,26 @@
           <div class="field {% if selected_has_purchased != 'true' %}hidden-field{% endif %}" id="transaction_photo_field">
             <label>Transaction Photo</label>
             <input class="file" type="file" name="transaction_photo" id="transaction_photo" accept="image/*" required>
+            <div class="photo-preview hidden" id="transaction_photo_preview" data-file-preview>
+              <img alt="Preview transaction photo">
+              <div>
+                <p class="photo-preview-name"></p>
+                <p class="photo-preview-meta"></p>
+              </div>
+            </div>
             <div class="hint">Wajib upload foto transaksi. File di atas 500 KB dikompres di browser sebelum dikirim.</div>
           </div>
 
           <div class="field {% if selected_has_purchased not in ['true', 'false'] %}hidden-field{% endif %}" id="chat_photo_field">
             <label>Chat Photo</label>
             <input class="file" type="file" name="chat_photo" id="chat_photo" accept="image/*" required>
+            <div class="photo-preview hidden" id="chat_photo_preview" data-file-preview>
+              <img alt="Preview chat photo">
+              <div>
+                <p class="photo-preview-name"></p>
+                <p class="photo-preview-meta"></p>
+              </div>
+            </div>
             <div class="hint">Wajib upload screenshot chat. File di atas 500 KB dikompres di browser sebelum dikirim.</div>
           </div>
         </div>
@@ -683,8 +736,10 @@
     const uploadProofCard = document.getElementById('upload_proof_card');
     const transactionPhotoField = document.getElementById('transaction_photo_field');
     const transactionPhotoInput = document.getElementById('transaction_photo');
+    const transactionPhotoPreview = document.getElementById('transaction_photo_preview');
     const chatPhotoField = document.getElementById('chat_photo_field');
     const chatPhotoInput = document.getElementById('chat_photo');
+    const chatPhotoPreview = document.getElementById('chat_photo_preview');
     const tokenStatus = document.getElementById('tokenStatus');
     const surveyForm = document.getElementById('surveyForm');
     const sp12Pack = document.getElementById('sp12_pack');
@@ -718,6 +773,44 @@
       tokenStatus.classList.remove('error-text', 'ok-text');
       if (type === 'error') tokenStatus.classList.add('error-text');
       if (type === 'ok') tokenStatus.classList.add('ok-text');
+    }
+
+    function formatFileSize(bytes) {
+      const size = Number(bytes || 0);
+      if (size >= 1024 * 1024) return (size / (1024 * 1024)).toFixed(2) + ' MB';
+      if (size >= 1024) return Math.round(size / 1024) + ' KB';
+      return size + ' B';
+    }
+
+    function clearPhotoPreview(preview) {
+      if (!preview) return;
+      const currentUrl = preview.dataset.objectUrl || '';
+      if (currentUrl) URL.revokeObjectURL(currentUrl);
+      preview.dataset.objectUrl = '';
+      const img = preview.querySelector('img');
+      const nameEl = preview.querySelector('.photo-preview-name');
+      const metaEl = preview.querySelector('.photo-preview-meta');
+      if (img) img.removeAttribute('src');
+      if (nameEl) nameEl.textContent = '';
+      if (metaEl) metaEl.textContent = '';
+      preview.classList.add('hidden');
+    }
+
+    function renderPhotoPreview(input, preview) {
+      if (!input || !preview) return;
+      clearPhotoPreview(preview);
+      const file = input.files && input.files[0];
+      if (!file || !file.type || !file.type.startsWith('image/')) return;
+
+      const objectUrl = URL.createObjectURL(file);
+      preview.dataset.objectUrl = objectUrl;
+      const img = preview.querySelector('img');
+      const nameEl = preview.querySelector('.photo-preview-name');
+      const metaEl = preview.querySelector('.photo-preview-meta');
+      if (img) img.src = objectUrl;
+      if (nameEl) nameEl.textContent = file.name || 'Foto terpilih';
+      if (metaEl) metaEl.textContent = `${formatFileSize(file.size)} - ${file.type || 'image'}`;
+      preview.classList.remove('hidden');
     }
 
     function packLabelToQuantity(label) {
@@ -780,6 +873,7 @@
         if (lighter) lighter.value = '';
         if (productTransactionsInput) productTransactionsInput.value = '';
         if (transactionPhotoInput) transactionPhotoInput.value = '';
+        clearPhotoPreview(transactionPhotoPreview);
       }
 
       if (!isNotPurchased && nonPurchaseReasons) {
@@ -931,6 +1025,8 @@
       compressedItems.forEach((item) => {
         if (item.compressedFile && item.compressedFile !== item.originalFile) {
           replaceFileInputFile(item.input, item.compressedFile);
+          if (item.input === transactionPhotoInput) renderPhotoPreview(transactionPhotoInput, transactionPhotoPreview);
+          if (item.input === chatPhotoInput) renderPhotoPreview(chatPhotoInput, chatPhotoPreview);
         }
       });
     }
@@ -1021,10 +1117,8 @@
     }
 
     function resetFilePreviews() {
-      document.querySelectorAll('[data-file-preview], .file-preview, .preview-file').forEach((preview) => {
-        preview.innerHTML = '';
-        preview.classList.add('hidden');
-      });
+      clearPhotoPreview(transactionPhotoPreview);
+      clearPhotoPreview(chatPhotoPreview);
     }
 
     function resetSurveyFormView() {
@@ -1128,7 +1222,7 @@
       if (loadingStatus) {
         if (loadingPhase === 'compressing') {
           if (elapsedSeconds >= 5) {
-            loadingStatus.textContent = 'Jika kompres terlalu lama, file asli akan dikirim otomatis.';
+            loadingStatus.textContent = 'Kompres masih berjalan. Jika gagal, submit akan dibatalkan.';
           } else if (elapsedSeconds >= 2) {
             loadingStatus.textContent = 'Masih mengompres gambar di browser.';
           }
@@ -1235,6 +1329,14 @@
       hasPurchased.addEventListener('change', updatePurchaseFields);
     }
 
+    if (transactionPhotoInput) {
+      transactionPhotoInput.addEventListener('change', () => renderPhotoPreview(transactionPhotoInput, transactionPhotoPreview));
+    }
+
+    if (chatPhotoInput) {
+      chatPhotoInput.addEventListener('change', () => renderPhotoPreview(chatPhotoInput, chatPhotoPreview));
+    }
+
     if (surveyForm) {
       surveyForm.addEventListener('submit', async function (e) {
         const isPurchased = hasPurchased && String(hasPurchased.value || '').trim().toLowerCase() === 'true';
@@ -1266,8 +1368,17 @@
         try {
           await compressSurveyImagesBeforeSubmit();
         } catch (err) {
-          console.warn('Kompres gambar dilewati:', err);
-          submitMessage = 'Kompres dilewati. Mengirim file asli.';
+          console.warn('Kompres gambar gagal:', err);
+          hideLoadingOverlay();
+          setSubmitLoading(false);
+          isSubmitting = false;
+          allowSubmitNavigation = false;
+          setTokenStatus(
+            'Gagal mengompres foto. Silakan pilih foto lain atau kecilkan ukuran foto, lalu kirim ulang.',
+            'error'
+          );
+          alert('Gagal mengompres foto. Silakan pilih foto lain atau kecilkan ukuran foto, lalu kirim ulang.');
+          return;
         }
 
         setLoadingPhase('submitting', submitMessage);

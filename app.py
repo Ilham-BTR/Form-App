@@ -125,7 +125,7 @@ DATABASE_URL = require_env("DATABASE_URL", allow_empty_in_dev=True)
 DEFAULT_DAILY_LIMIT = 40
 RESERVED_PHONE_TIMEOUT_MINUTES = get_positive_int_env("RESERVED_PHONE_TIMEOUT_MINUTES", 120)
 DUPLICATE_SUBMISSION_WINDOW_MINUTES = get_positive_int_env("DUPLICATE_SUBMISSION_WINDOW_MINUTES", 10)
-PENDING_DUPLICATE_BLOCK_SECONDS = get_positive_int_env("PENDING_DUPLICATE_BLOCK_SECONDS", 30)
+PENDING_DUPLICATE_BLOCK_SECONDS = min(get_positive_int_env("PENDING_DUPLICATE_BLOCK_SECONDS", 90), 90)
 SUBMISSION_LOG_LIMIT_OPTIONS = ["25", "50", "100", "200", "500", "1000", "10000", "all"]
 MAX_SUBMISSION_LOG_LIMIT = 10000
 
@@ -2551,7 +2551,6 @@ def canonicalize_product_transactions(value):
 def build_submission_identity_payload(request_summary):
     summary = request_summary or {}
     return {
-        "phone_number": normalize_submission_identity_text(summary.get("phone_number")),
         "kc_name": normalize_submission_identity_text(summary.get("kc_name")),
         "customer_name": normalize_submission_identity_text(summary.get("customer_name")),
         "age_range": normalize_submission_identity_text(summary.get("age_range")),
@@ -3306,7 +3305,8 @@ def user_app():
                 duplicate_status = duplicate_submission.get("status_local") or "PENDING"
                 duplicate_message = (
                     f"Submit dengan data yang sama sudah terdeteksi pada {duplicate_created_at} "
-                    f"dengan nomor {duplicate_phone}. Sistem membatalkan kirim ulang otomatis."
+                    f"dengan nomor {duplicate_phone}. Sistem membatalkan kirim ulang otomatis. "
+                    "Jika ini customer berbeda, ubah Nama Customer lalu kirim ulang."
                 )
                 update_submission_attempt(
                     submission_id,
@@ -3327,14 +3327,16 @@ def user_app():
                     error = (
                         "Data yang sama masih sedang diproses dari submit sebelumnya. "
                         f"Form ini akan direset otomatis dalam {PENDING_DUPLICATE_BLOCK_SECONDS} detik. "
-                        "Setelah reset, isi ulang dan ganti nama customer sebelum kirim lagi."
+                        "Sistem membatalkan kirim ulang agar tidak dobel submit. "
+                        "Jika ini customer berbeda, isi ulang dan ganti Nama Customer sebelum kirim lagi."
                     )
                     delayed_reset_seconds = PENDING_DUPLICATE_BLOCK_SECONDS
                 else:
                     success_message = (
                         "Data yang sama sudah pernah terkirim beberapa saat lalu, jadi sistem tidak mengirim ulang.\n\n"
                         f"Nomor sebelumnya : {duplicate_phone}\n"
-                        f"Waktu submit : {duplicate_created_at}"
+                        f"Waktu submit : {duplicate_created_at}\n\n"
+                        "Jika ini customer berbeda, ganti Nama Customer lalu kirim ulang."
                     )
                     reset_form = True
                     selected_age_range = "age-31-35"
