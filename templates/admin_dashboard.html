@@ -101,6 +101,38 @@
       background: #d97706;
     }
 
+    .select-cell {
+      width: 44px;
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    .token-select,
+    #tokenSelectAll {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+
+    .bulk-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      background: #f8fafc;
+    }
+
+    .bulk-count {
+      color: #475569;
+      font-size: 13px;
+      font-weight: bold;
+      margin-right: 4px;
+    }
+
     .stats {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -486,14 +518,27 @@
         <form class="inline" id="resetAllUsageTodayForm" method="post" action="/admin/token/reset-usage-today">
           <button class="btn btn-sm btn-warning" type="submit">Reset Semua Terpakai Hari Ini</button>
         </form>
+        <form class="inline" id="activateAllTokensForm" method="post" action="/admin/tokens/activate-all">
+          <button class="btn btn-sm btn-refresh" type="submit">Aktifkan Semua Akun</button>
+        </form>
         <form class="inline" id="deactivateAllTokensForm" method="post" action="/admin/tokens/deactivate-all">
           <button class="btn btn-sm btn-danger" type="submit">Nonaktifkan Semua Akun</button>
         </form>
+      </div>
+      <div class="bulk-toolbar" id="tokenBulkToolbar">
+        <span class="bulk-count" id="tokenSelectedCount">0 akun dipilih</span>
+        <button class="btn btn-sm btn-refresh" type="button" data-bulk-action="activate">Aktifkan Terpilih</button>
+        <button class="btn btn-sm btn-muted" type="button" data-bulk-action="deactivate">Nonaktifkan Terpilih</button>
+        <button class="btn btn-sm btn-warning" type="button" data-bulk-action="reset_usage_today">Reset Terpakai Terpilih</button>
+        <button class="btn btn-sm" type="button" data-bulk-action="refresh_bearer">Refresh Token Terpilih</button>
+        <button class="btn btn-sm btn-secondary" type="button" data-export-format="txt">Export TXT Terpilih</button>
+        <button class="btn btn-sm btn-secondary" type="button" data-export-format="xlsx">Export Excel Terpilih</button>
       </div>
       <div class="hint" id="tokenFilterHint">Menampilkan {{ token_visible_count }} dari {{ token_filtered_count }} token hasil filter.</div>
       <table>
         <thead>
           <tr>
+            <th class="select-cell"><input id="tokenSelectAll" type="checkbox" aria-label="Pilih semua akun yang tampil"></th>
             <th>Nama KC</th>
             <th>Team</th>
             <th>Area</th>
@@ -513,6 +558,7 @@
         <tbody id="tokenTableBody">
           {% for row in token_rows %}
           <tr>
+            <td class="select-cell"><input class="token-select" type="checkbox" value="{{ row.kc_token }}" aria-label="Pilih {{ row.kc_name }}"></td>
             <td>{{ row.kc_name }}</td>
             <td>{{ row.team }}</td>
             <td>{{ row.token_area }}</td>
@@ -556,7 +602,7 @@
           {% endfor %}
           {% if not token_rows %}
           <tr>
-            <td colspan="14">Belum ada KC token.</td>
+            <td colspan="15">Belum ada KC token.</td>
           </tr>
           {% endif %}
         </tbody>
@@ -678,7 +724,11 @@
     const usageExportLink = document.getElementById('usageExportLink');
     const ajaxMessage = document.getElementById('dashboardAjaxMessage');
     const resetAllUsageTodayForm = document.getElementById('resetAllUsageTodayForm');
+    const activateAllTokensForm = document.getElementById('activateAllTokensForm');
     const deactivateAllTokensForm = document.getElementById('deactivateAllTokensForm');
+    const tokenBulkToolbar = document.getElementById('tokenBulkToolbar');
+    const tokenSelectedCount = document.getElementById('tokenSelectedCount');
+    const tokenSelectAll = document.getElementById('tokenSelectAll');
     let toastTimer = null;
 
     function escapeHtml(value) {
@@ -691,7 +741,7 @@
     }
 
     function setLoading(isLoading) {
-      [tokenToolbarForm, usageToolbarForm, tokenTableBody, usageTableBody, resetAllUsageTodayForm, deactivateAllTokensForm]
+      [tokenToolbarForm, usageToolbarForm, tokenTableBody, usageTableBody, resetAllUsageTodayForm, activateAllTokensForm, deactivateAllTokensForm, tokenBulkToolbar]
         .filter(Boolean)
         .forEach((el) => el.classList.toggle('is-loading', isLoading));
     }
@@ -750,9 +800,22 @@
       usageExportLink.href = '/admin/usage/export' + (exportParams.toString() ? '?' + exportParams.toString() : '');
     }
 
+    function getSelectedTokens() {
+      return Array.from(tokenTableBody.querySelectorAll('.token-select:checked')).map((input) => input.value);
+    }
+
+    function updateTokenSelectionState() {
+      const checkboxes = Array.from(tokenTableBody.querySelectorAll('.token-select'));
+      const selectedCount = checkboxes.filter((input) => input.checked).length;
+      tokenSelectedCount.textContent = selectedCount + ' akun dipilih';
+      tokenSelectAll.checked = checkboxes.length > 0 && selectedCount === checkboxes.length;
+      tokenSelectAll.indeterminate = selectedCount > 0 && selectedCount < checkboxes.length;
+    }
+
     function renderTokenRows(rows) {
       if (!rows.length) {
-        tokenTableBody.innerHTML = '<tr><td colspan="14">Belum ada KC token.</td></tr>';
+        tokenTableBody.innerHTML = '<tr><td colspan="15">Belum ada KC token.</td></tr>';
+        updateTokenSelectionState();
         return;
       }
 
@@ -764,6 +827,7 @@
         const tokenUrl = '/admin/token/' + encodeURIComponent(row.kc_token);
         return `
           <tr>
+            <td class="select-cell"><input class="token-select" type="checkbox" value="${escapeHtml(row.kc_token)}" aria-label="Pilih ${escapeHtml(row.kc_name)}"></td>
             <td>${escapeHtml(row.kc_name)}</td>
             <td>${escapeHtml(row.team ?? '-')}</td>
             <td>${escapeHtml(row.token_area)}</td>
@@ -795,6 +859,7 @@
           </tr>
         `;
       }).join('');
+      updateTokenSelectionState();
     }
 
     function renderUsageRows(rows) {
@@ -872,19 +937,27 @@
       }
     }
 
-    async function postJson(url, button) {
+    async function postJson(url, button, payload = null) {
       const originalText = button ? button.textContent : '';
       if (button) {
         button.disabled = true;
         button.textContent = '...';
       }
       try {
-        const res = await fetch(url, {
+        const headers = {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        };
+        const options = {
           method: 'POST',
-          headers: {
-            'Accept': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest'
-          }
+          headers
+        };
+        if (payload) {
+          headers['Content-Type'] = 'application/json';
+          options.body = JSON.stringify(payload);
+        }
+        const res = await fetch(url, {
+          ...options
         });
         const data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.error || 'Proses gagal.');
@@ -949,6 +1022,18 @@
       }
     });
 
+    activateAllTokensForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!confirm('Aktifkan semua akun KC token?')) return;
+      const button = activateAllTokensForm.querySelector('button[type="submit"]');
+      try {
+        const data = await postJson(activateAllTokensForm.action, button);
+        await refreshDashboardData({ message: `${data.activated_count} akun berhasil diaktifkan.` });
+      } catch (err) {
+        showMessage(err.message || 'Gagal mengaktifkan semua akun.', true);
+      }
+    });
+
     deactivateAllTokensForm.addEventListener('submit', async (event) => {
       event.preventDefault();
       if (!confirm('Nonaktifkan semua akun KC token? Semua user tidak bisa submit sampai token diaktifkan lagi.')) return;
@@ -961,11 +1046,120 @@
       }
     });
 
+    async function handleBulkTokenAction(button, action) {
+      const kcTokens = getSelectedTokens();
+      if (!kcTokens.length) {
+        showMessage('Pilih akun dulu.', true);
+        return;
+      }
+
+      const confirmMessages = {
+        activate: `Aktifkan ${kcTokens.length} akun terpilih?`,
+        deactivate: `Nonaktifkan ${kcTokens.length} akun terpilih?`,
+        reset_usage_today: `Reset Terpakai Hari Ini untuk ${kcTokens.length} akun terpilih ke 0?`,
+        refresh_bearer: `Refresh bearer token untuk ${kcTokens.length} akun terpilih?\nJika gagal, tiap akun akan dicoba ulang maksimal 3 kali.`
+      };
+      if (!confirm(confirmMessages[action] || 'Proses akun terpilih?')) return;
+
+      try {
+        const data = await postJson('/admin/tokens/bulk-action', button, { action, kc_tokens: kcTokens });
+        let message = 'Aksi terpilih selesai.';
+        if (action === 'activate') message = `${data.updated_count} akun berhasil diaktifkan.`;
+        if (action === 'deactivate') message = `${data.updated_count} akun berhasil dinonaktifkan.`;
+        if (action === 'reset_usage_today') message = `${data.reset_count} akun berhasil direset untuk ${data.usage_date}.`;
+        if (action === 'refresh_bearer') {
+          message = `Refresh selesai. Berhasil: ${data.success_count}, gagal: ${data.failure_count}.`;
+          if (data.failure_count && data.failures?.length) {
+            message += ' Gagal: ' + data.failures.map((item) => item.kc_token).join(', ');
+          }
+        }
+        await refreshDashboardData({ message });
+      } catch (err) {
+        showMessage(err.message || 'Aksi akun terpilih gagal diproses.', true);
+      }
+    }
+
+    function getFilenameFromDisposition(disposition, fallback) {
+      const match = /filename="?([^"]+)"?/i.exec(disposition || '');
+      return match ? match[1] : fallback;
+    }
+
+    async function handleSelectedTokenExport(button, format) {
+      const kcTokens = getSelectedTokens();
+      if (!kcTokens.length) {
+        showMessage('Pilih akun dulu.', true);
+        return;
+      }
+
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = '...';
+      try {
+        const res = await fetch('/admin/tokens/export-selected', {
+          method: 'POST',
+          headers: {
+            'Accept': format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'text/plain',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: JSON.stringify({ format, kc_tokens: kcTokens })
+        });
+        if (!res.ok) {
+          let message = 'Gagal export akun terpilih.';
+          try {
+            const data = await res.json();
+            message = data.error || message;
+          } catch (err) {}
+          throw new Error(message);
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = getFilenameFromDisposition(
+          res.headers.get('Content-Disposition'),
+          format === 'xlsx' ? 'kc-token-terpilih.xlsx' : 'kc-token-terpilih.txt'
+        );
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        showMessage(`Export ${format.toUpperCase()} untuk ${kcTokens.length} akun selesai.`);
+      } catch (err) {
+        showMessage(err.message || 'Gagal export akun terpilih.', true);
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
+    }
+
+    tokenSelectAll.addEventListener('change', () => {
+      tokenTableBody.querySelectorAll('.token-select').forEach((input) => {
+        input.checked = tokenSelectAll.checked;
+      });
+      updateTokenSelectionState();
+    });
+
+    tokenBulkToolbar.addEventListener('click', (event) => {
+      const exportButton = event.target.closest('button[data-export-format]');
+      if (exportButton) {
+        handleSelectedTokenExport(exportButton, exportButton.dataset.exportFormat || 'txt');
+        return;
+      }
+      const button = event.target.closest('button[data-bulk-action]');
+      if (!button) return;
+      handleBulkTokenAction(button, button.dataset.bulkAction || '');
+    });
+
     tokenTableBody.addEventListener('click', (event) => {
       const refreshButton = event.target.closest('button[data-action="refresh"]');
       if (refreshButton) {
         handleRefreshToken(refreshButton, refreshButton.dataset.kcToken || '');
       }
+    });
+
+    tokenTableBody.addEventListener('change', (event) => {
+      if (event.target.matches('.token-select')) updateTokenSelectionState();
     });
 
     tokenTableBody.addEventListener('submit', async (event) => {
@@ -998,6 +1192,8 @@
     ['usage_date_from', 'usage_date_to'].forEach((name) => {
       usageToolbarForm.elements[name].addEventListener('change', () => refreshDashboardData());
     });
+
+    updateTokenSelectionState();
   </script>
 </body>
 

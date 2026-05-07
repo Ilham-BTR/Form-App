@@ -1914,6 +1914,40 @@ def deactivate_all_kc_tokens():
     return updated_count
 
 
+def activate_all_kc_tokens():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE valid_kc_tokens
+        SET is_active = 1
+        WHERE is_active = 0
+    """)
+    updated_count = cur.rowcount
+    conn.commit()
+    conn.close()
+    return updated_count
+
+
+def set_kc_tokens_status(kc_tokens, is_active):
+    tokens = normalize_kc_token_selection(kc_tokens)
+    if not tokens:
+        return 0
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE valid_kc_tokens
+        SET is_active = %s
+        WHERE kc_token = ANY(%s)
+        """,
+        (1 if is_active else 0, tokens),
+    )
+    updated_count = cur.rowcount
+    conn.commit()
+    conn.close()
+    return updated_count
+
+
 def delete_kc_token(kc_token):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -2050,6 +2084,63 @@ def build_kc_token_export_csv():
     return "\ufeff" + output.getvalue(), usage_date
 
 
+def get_selected_kc_token_export_rows(kc_tokens):
+    tokens = normalize_kc_token_selection(kc_tokens)
+    if not tokens:
+        return []
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT kc_name, token_area, kc_username, kc_password, kc_token
+        FROM valid_kc_tokens
+        WHERE kc_token = ANY(%s)
+        ORDER BY array_position(%s, kc_token)
+        """,
+        (tokens, tokens),
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
+def build_selected_kc_token_export_text(kc_tokens):
+    rows = get_selected_kc_token_export_rows(kc_tokens)
+    blocks = []
+    for row in rows:
+        blocks.append(
+            "\n".join([
+                f"Nama KC : {row['kc_name'] or ''}",
+                f"Area : {row['token_area'] or ''}",
+                f"Username : {row['kc_username'] or ''}",
+                f"Pasword : {row['kc_password'] or ''}",
+                f"Token : {row['kc_token'] or ''}",
+            ])
+        )
+    return "\n\n".join(blocks), len(rows)
+
+
+def build_selected_kc_token_export_excel(kc_tokens):
+    rows = get_selected_kc_token_export_rows(kc_tokens)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "KC Token Terpilih"
+    ws.append(["Nama KC", "Area", "Username", "Pasword", "Token"])
+    for row in rows:
+        ws.append([
+            row["kc_name"] or "",
+            row["token_area"] or "",
+            row["kc_username"] or "",
+            row["kc_password"] or "",
+            row["kc_token"] or "",
+        ])
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output.read(), len(rows)
+
+
 def get_kc_token_usage(kc_token, usage_date):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -2156,6 +2247,44 @@ def reset_all_kc_token_usage_today(usage_date=None):
     conn.commit()
     conn.close()
     return len(token_rows), target_date
+
+
+def normalize_kc_token_selection(raw_tokens):
+    tokens = []
+    seen = set()
+    if not isinstance(raw_tokens, list):
+        return tokens
+    for raw_token in raw_tokens:
+        token = str(raw_token or "").strip()
+        if token and token not in seen:
+            tokens.append(token)
+            seen.add(token)
+    return tokens
+
+
+def reset_selected_kc_token_usage_today(kc_tokens, usage_date=None):
+    target_date = usage_date or get_today_wib()
+    tokens = normalize_kc_token_selection(kc_tokens)
+    if not tokens:
+        return 0, target_date
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    reset_count = 0
+    for kc_token in tokens:
+        cur.execute("""
+            INSERT INTO kc_token_usage (kc_token, usage_date, total_submit)
+            SELECT kc_token, %s, 0
+            FROM valid_kc_tokens
+            WHERE kc_token = %s
+            ON CONFLICT (kc_token, usage_date)
+            DO UPDATE SET total_submit = 0
+        """, (target_date, kc_token))
+        if cur.rowcount:
+            reset_count += 1
+    conn.commit()
+    conn.close()
+    return reset_count, target_date
 
 
 def get_remaining_quota(kc_token, daily_limit):
@@ -4229,79 +4358,87 @@ def admin_edit_token(kc_token):
     return render_template("admin_token_form.html", error=error, mode="edit", token_data=token_data)
 
 
-@app.route("/admin/token/<path:kc_token>/refresh-bearer", methods=["POST"])
-@admin_required
-def admin_refresh_bearer_token(kc_token):
+def refresh_kc_bearer_token_with_retry(kc_token, max_attempts=3):
     kc_detail = get_kc_token_detail(kc_token)
     if not kc_detail:
-        return jsonify({"success": False, "error": "KC token tidak ditemukan."})
+        raise ValueError("KC token tidak ditemukan.")
 
     username = (kc_detail.get("kc_username") or "").strip()
     password = (kc_detail.get("kc_password") or "").strip()
     if not username or not password:
-        return jsonify({"success": False, "error": "Username atau password belum diisi di data KC token ini."})
+        raise ValueError("Username atau password belum diisi di data KC token ini.")
 
     secret = os.environ.get("APP_HMAC_SECRET", "").strip()
     if not secret:
-        return jsonify({"success": False, "error": "APP_HMAC_SECRET belum di-set."})
+        raise ValueError("APP_HMAC_SECRET belum di-set.")
 
     captcha_key = os.environ.get("TWOCAPTCHA_API_KEY", "").strip()
     if not captcha_key:
-        return jsonify({"success": False, "error": "TWOCAPTCHA_API_KEY belum di-set."})
+        raise ValueError("TWOCAPTCHA_API_KEY belum di-set.")
 
+    attempts = max(1, int(max_attempts or 1))
+    last_error = ""
+    for attempt in range(1, attempts + 1):
+        try:
+            recaptcha_token = _sl_solve_recaptcha(captcha_key)
+            ts = _sl_utc_timestamp_ms()
+            body_obj = {
+                "identifier": username,
+                "password": base64.b64encode(password.encode()).decode(),
+                "type_of_web": _SL_DEFAULT_TYPE_OF_WEB,
+                "recaptcha_token": recaptcha_token,
+            }
+            hash_val = _sl_build_hash(secret, ts, _SL_AUTH_ENDPOINT, body_obj)
+            headers = {
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Content-Type": "application/json",
+                "Dnt": "1",
+                "Hash": hash_val,
+                "Origin": "https://letscml.id",
+                "Referer": "https://letscml.id/",
+                "Timestamp": ts,
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+            }
+            resp = requests.post(_SL_BASE_URL + _SL_AUTH_ENDPOINT, json=body_obj, headers=headers, timeout=45)
+            token, token_source = _sl_extract_token(resp)
+            if not token:
+                try:
+                    preview = str(resp.json())[:200]
+                except Exception:
+                    preview = resp.text[:200]
+                raise ValueError(f"Token tidak ditemukan. Status: {resp.status_code}. {preview}")
+
+            update_kc_token(
+                old_kc_token=kc_token,
+                new_kc_token=kc_detail["kc_token"],
+                kc_name=kc_detail["kc_name"],
+                bearer_token=token,
+                daily_limit=kc_detail["daily_limit"],
+                team=kc_detail.get("team", ""),
+                token_area=kc_detail.get("token_area", ""),
+                kc_username=username,
+                kc_password=password,
+            )
+            return {"success": True, "token_source": token_source, "attempts": attempt}
+        except requests.exceptions.Timeout:
+            last_error = "Timeout (45s)."
+        except Exception as e:
+            last_error = str(e)
+        logger.warning("Refresh bearer token failed kc_token=%s attempt=%s/%s error=%s", kc_token, attempt, attempts, last_error)
+
+    raise ValueError(last_error or "Gagal refresh bearer token.")
+
+
+@app.route("/admin/token/<path:kc_token>/refresh-bearer", methods=["POST"])
+@admin_required
+def admin_refresh_bearer_token(kc_token):
     try:
-        recaptcha_token = _sl_solve_recaptcha(captcha_key)
-    except Exception as e:
-        return jsonify({"success": False, "error": f"Auto-solve captcha gagal: {e}"})
-
-    ts = _sl_utc_timestamp_ms()
-    body_obj = {
-        "identifier": username,
-        "password": base64.b64encode(password.encode()).decode(),
-        "type_of_web": _SL_DEFAULT_TYPE_OF_WEB,
-        "recaptcha_token": recaptcha_token,
-    }
-    hash_val = _sl_build_hash(secret, ts, _SL_AUTH_ENDPOINT, body_obj)
-    headers = {
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Content-Type": "application/json",
-        "Dnt": "1",
-        "Hash": hash_val,
-        "Origin": "https://letscml.id",
-        "Referer": "https://letscml.id/",
-        "Timestamp": ts,
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
-    }
-
-    try:
-        resp = requests.post(_SL_BASE_URL + _SL_AUTH_ENDPOINT, json=body_obj, headers=headers, timeout=45)
-    except requests.exceptions.Timeout:
-        return jsonify({"success": False, "error": "Timeout (45s)."})
+        result = refresh_kc_bearer_token_with_retry(kc_token, max_attempts=1)
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
-
-    token, token_source = _sl_extract_token(resp)
-    if not token:
-        try:
-            preview = str(resp.json())[:200]
-        except Exception:
-            preview = resp.text[:200]
-        return jsonify({"success": False, "error": f"Token tidak ditemukan. Status: {resp.status_code}. {preview}"})
-
-    update_kc_token(
-        old_kc_token=kc_token,
-        new_kc_token=kc_detail["kc_token"],
-        kc_name=kc_detail["kc_name"],
-        bearer_token=token,
-        daily_limit=kc_detail["daily_limit"],
-        team=kc_detail.get("team", ""),
-        token_area=kc_detail.get("token_area", ""),
-        kc_username=username,
-        kc_password=password,
-    )
-    logger.info(f"Bearer token refreshed for KC {kc_token} via refresh-bearer route (source: {token_source})")
-    return jsonify({"success": True, "token_source": token_source})
+    logger.info(f"Bearer token refreshed for KC {kc_token} via refresh-bearer route (source: {result['token_source']})")
+    return jsonify({"success": True, "token_source": result["token_source"], "attempts": result["attempts"]})
 
 
 @app.route("/admin/token/import", methods=["POST"])
@@ -4334,6 +4471,38 @@ def admin_export_tokens():
     return Response(
         csv_content,
         mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.route("/admin/tokens/export-selected", methods=["POST"])
+@admin_required
+def admin_export_selected_tokens():
+    payload = request.get_json(silent=True) or {}
+    kc_tokens = normalize_kc_token_selection(payload.get("kc_tokens") or [])
+    export_format = str(payload.get("format") or "txt").strip().lower()
+    if not kc_tokens:
+        return jsonify({"success": False, "error": "Pilih minimal satu akun."}), 400
+
+    today = get_today_wib()
+    if export_format == "xlsx":
+        excel_content, export_count = build_selected_kc_token_export_excel(kc_tokens)
+        if export_count == 0:
+            return jsonify({"success": False, "error": "Akun terpilih tidak ditemukan."}), 404
+        filename = f"kc-token-terpilih-{today}.xlsx"
+        return Response(
+            excel_content,
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    text_content, export_count = build_selected_kc_token_export_text(kc_tokens)
+    if export_count == 0:
+        return jsonify({"success": False, "error": "Akun terpilih tidak ditemukan."}), 404
+    filename = f"kc-token-terpilih-{today}.txt"
+    return Response(
+        "\ufeff" + text_content,
+        mimetype="text/plain; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -4385,6 +4554,75 @@ def admin_deactivate_all_tokens():
     if wants_json_response():
         return jsonify({"success": True, "deactivated_count": deactivated_count})
     return redirect(request.referrer or url_for("admin_dashboard"))
+
+
+@app.route("/admin/tokens/activate-all", methods=["POST"])
+@admin_required
+def admin_activate_all_tokens():
+    activated_count = activate_all_kc_tokens()
+    if wants_json_response():
+        return jsonify({"success": True, "activated_count": activated_count})
+    return redirect(request.referrer or url_for("admin_dashboard"))
+
+
+@app.route("/admin/tokens/bulk-action", methods=["POST"])
+@admin_required
+def admin_bulk_token_action():
+    payload = request.get_json(silent=True) or {}
+    action = str(payload.get("action") or "").strip()
+    kc_tokens = normalize_kc_token_selection(payload.get("kc_tokens") or [])
+    if not kc_tokens:
+        return jsonify({"success": False, "error": "Pilih minimal satu akun."}), 400
+
+    current_user_token = (session.get("kc_token") or "").strip()
+    try:
+        if action == "activate":
+            updated_count = set_kc_tokens_status(kc_tokens, 1)
+            return jsonify({"success": True, "action": action, "updated_count": updated_count})
+
+        if action == "deactivate":
+            updated_count = set_kc_tokens_status(kc_tokens, 0)
+            if current_user_token in kc_tokens:
+                clear_user_session()
+            return jsonify({"success": True, "action": action, "updated_count": updated_count})
+
+        if action == "reset_usage_today":
+            reset_count, target_date = reset_selected_kc_token_usage_today(kc_tokens)
+            if current_user_token in kc_tokens:
+                session["used_today"] = 0
+            return jsonify({
+                "success": True,
+                "action": action,
+                "reset_count": reset_count,
+                "usage_date": target_date,
+            })
+
+        if action == "refresh_bearer":
+            successes = []
+            failures = []
+            for token in kc_tokens:
+                try:
+                    result = refresh_kc_bearer_token_with_retry(token, max_attempts=3)
+                    successes.append({
+                        "kc_token": token,
+                        "token_source": result["token_source"],
+                        "attempts": result["attempts"],
+                    })
+                except Exception as e:
+                    failures.append({"kc_token": token, "error": str(e)})
+            return jsonify({
+                "success": True,
+                "action": action,
+                "success_count": len(successes),
+                "failure_count": len(failures),
+                "successes": successes[:10],
+                "failures": failures[:10],
+            })
+
+        return jsonify({"success": False, "error": "Aksi massal tidak valid."}), 400
+    except Exception as e:
+        logger.exception("admin_bulk_token_action error")
+        return jsonify({"success": False, "error": str(e)}), 400
 
 
 @app.route("/admin/token/<path:kc_token>/delete", methods=["POST"])
