@@ -664,11 +664,14 @@ def get_kc_purchase_counts(date_from="", date_to=""):
             SUM(
                 CASE
                     WHEN COALESCE(s.request_summary_json::jsonb ->> 'has_purchased', '') = 'true'
-                     AND EXISTS (
+                     AND (
+                       COALESCE(s.request_summary_json::jsonb ->> 'lighter', '') = 'Ya'
+                       OR EXISTS (
                         SELECT 1
                         FROM jsonb_array_elements(COALESCE(NULLIF(s.request_summary_json::jsonb ->> 'product_transactions', '')::jsonb, '[]'::jsonb)) AS item
                         WHERE item ->> 'product_name' = 'Lighter'
                           AND COALESCE((item ->> 'quantity')::int, 0) > 0
+                       )
                     )
                     THEN 1 ELSE 0
                 END
@@ -676,6 +679,7 @@ def get_kc_purchase_counts(date_from="", date_to=""):
             SUM(
                 CASE
                     WHEN COALESCE(s.request_summary_json::jsonb ->> 'has_purchased', '') = 'true'
+                     AND COALESCE(s.request_summary_json::jsonb ->> 'lighter', '') != 'Ya'
                      AND NOT EXISTS (
                         SELECT 1
                         FROM jsonb_array_elements(COALESCE(NULLIF(s.request_summary_json::jsonb ->> 'product_transactions', '')::jsonb, '[]'::jsonb)) AS item
@@ -703,6 +707,19 @@ def get_kc_purchase_counts(date_from="", date_to=""):
             "lighter_no": int(row["lighter_no"] or 0),
         }
         for row in rows
+    }
+
+
+def get_kc_token_card_stats(kc_token, daily_limit):
+    used_today, remaining_today, quota_date = get_remaining_quota(kc_token, daily_limit)
+    purchase_counts = get_kc_purchase_counts(quota_date, quota_date).get(kc_token, {})
+    return {
+        "used_today": int(used_today or 0),
+        "remaining_today": int(remaining_today or 0),
+        "quota_date": quota_date,
+        "purchase_yes": int(purchase_counts.get("purchase_yes", 0) or 0),
+        "purchase_no": int(purchase_counts.get("purchase_no", 0) or 0),
+        "lighter_yes": int(purchase_counts.get("lighter_yes", 0) or 0),
     }
 
 
@@ -3180,12 +3197,14 @@ def user_app():
 
     bearer_token = (kc_detail["bearer_token"] or "").strip()
     kc_name = kc_detail["kc_name"] or "-"
-    used_today, remaining_today, quota_date = get_remaining_quota(kc_token, daily_limit)
-    purchase_counts_today = get_kc_purchase_counts(quota_date, quota_date).get(kc_token, {})
-    total_submit_noc = int(used_today or 0)
-    purchase_yes = int(purchase_counts_today.get("purchase_yes", 0) or 0)
-    purchase_no = int(purchase_counts_today.get("purchase_no", 0) or 0)
-    lighter_yes = int(purchase_counts_today.get("lighter_yes", 0) or 0)
+    token_card_stats = get_kc_token_card_stats(kc_token, daily_limit)
+    used_today = token_card_stats["used_today"]
+    remaining_today = token_card_stats["remaining_today"]
+    quota_date = token_card_stats["quota_date"]
+    total_submit_noc = token_card_stats["used_today"]
+    purchase_yes = token_card_stats["purchase_yes"]
+    purchase_no = token_card_stats["purchase_no"]
+    lighter_yes = token_card_stats["lighter_yes"]
 
     release_stale_reserved_phones(kc_token=kc_token)
     assigned_phone_number = session.get("assigned_phone_number")
@@ -3523,6 +3542,15 @@ def user_app():
                 except Exception:
                     logger.exception("failed to update submission attempt after route error")
             error = str(e)
+
+    if session.get("kc_token") == kc_token:
+        token_card_stats = get_kc_token_card_stats(kc_token, daily_limit)
+        used_today = token_card_stats["used_today"]
+        remaining_today = token_card_stats["remaining_today"]
+        total_submit_noc = token_card_stats["used_today"]
+        purchase_yes = token_card_stats["purchase_yes"]
+        purchase_no = token_card_stats["purchase_no"]
+        lighter_yes = token_card_stats["lighter_yes"]
 
     return render_template(
         "user_app.html",
