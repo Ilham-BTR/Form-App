@@ -226,6 +226,26 @@ def init_db():
     """)
 
     cur.execute("""
+        SELECT LOWER(BTRIM(kc_username)) AS normalized_username, COUNT(*) AS total
+        FROM valid_kc_tokens
+        WHERE BTRIM(COALESCE(kc_username, '')) != ''
+        GROUP BY LOWER(BTRIM(kc_username))
+        HAVING COUNT(*) > 1
+        LIMIT 1
+    """)
+    duplicate_username = cur.fetchone()
+    if duplicate_username:
+        emit_bootstrap_warning(
+            "Ada kc_username duplikat di valid_kc_tokens. Unique index username dilewati sampai data duplikat dibersihkan."
+        )
+    else:
+        cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_valid_kc_tokens_unique_username
+            ON valid_kc_tokens (LOWER(BTRIM(kc_username)))
+            WHERE BTRIM(COALESCE(kc_username, '')) != ''
+        """)
+
+    cur.execute("""
         SELECT 1
         FROM information_schema.columns
         WHERE table_name = 'valid_kc_tokens'
@@ -1569,6 +1589,7 @@ def import_kc_tokens(uploaded_file):
 
                 daily_limit = parse_positive_int(get_import_cell(row, header_index, "daily_limit"), "Daily limit")
                 is_active = parse_active_value(get_import_cell(row, header_index, "is_active"))
+                ensure_kc_username_unique(kc_username, exclude_kc_token=kc_token, cur=cur)
 
                 cur.execute(
                     """
@@ -1729,6 +1750,40 @@ def get_all_kc_tokens():
     return rows
 
 
+def ensure_kc_username_unique(kc_username, exclude_kc_token=None, cur=None):
+    username = str(kc_username or "").strip()
+    if not username:
+        return
+
+    own_connection = None
+    if cur is None:
+        own_connection = get_db_connection()
+        cur = own_connection.cursor()
+
+    try:
+        query = [
+            """
+            SELECT kc_token
+            FROM valid_kc_tokens
+            WHERE LOWER(BTRIM(kc_username)) = LOWER(BTRIM(%s))
+            """
+        ]
+        params = [username]
+        if exclude_kc_token:
+            query.append("AND kc_token != %s")
+            params.append(exclude_kc_token)
+        query.append("LIMIT 1")
+        cur.execute(" ".join(query), params)
+        existing = cur.fetchone()
+        if existing:
+            raise ValueError(
+                f"Username KC \"{username}\" sudah dipakai oleh KC token {existing['kc_token']}."
+            )
+    finally:
+        if own_connection:
+            own_connection.close()
+
+
 def normalize_token_rows_param(raw_value):
     allowed_values = {"3", "10", "100", "all"}
     current = str(raw_value or "10").strip().lower()
@@ -1824,6 +1879,7 @@ def filter_sort_limit_token_rows(rows, filter_text="", status_filter="", area_fi
 def create_kc_token(kc_token, kc_name, token_area, bearer_token, daily_limit, kc_username="", kc_password="", team=""):
     conn = get_db_connection()
     cur = conn.cursor()
+    ensure_kc_username_unique(kc_username, cur=cur)
     cur.execute("""
         INSERT INTO valid_kc_tokens (
             kc_token, kc_name, team, token_area, kc_username, kc_password, bearer_token, daily_limit, is_active, created_date
@@ -1848,6 +1904,8 @@ def update_kc_token(
 ):
     conn = get_db_connection()
     cur = conn.cursor()
+    if kc_username is not None:
+        ensure_kc_username_unique(kc_username, exclude_kc_token=old_kc_token, cur=cur)
 
     if old_kc_token != new_kc_token:
         cur.execute("""
