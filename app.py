@@ -1544,6 +1544,72 @@ def get_import_rows(uploaded_file):
     return rows
 
 
+def extract_master_json_items(payload, master_type):
+    current_type = str(master_type or "").strip().lower()
+    data = payload.get("data") if isinstance(payload, dict) else payload
+
+    if current_type == "bumo":
+        if isinstance(data, dict):
+            items = data.get("data")
+        else:
+            items = data
+    elif current_type == "kc_area":
+        if isinstance(data, dict):
+            items = data.get("areas") or data.get("data")
+        else:
+            items = data
+    else:
+        raise ValueError("Jenis master data tidak valid.")
+
+    if not isinstance(items, list):
+        raise ValueError("Format JSON master data tidak sesuai.")
+    return items
+
+
+def get_master_import_rows(uploaded_file, master_type):
+    filename = secure_filename(uploaded_file.filename or "")
+    if not filename:
+        raise ValueError("File import wajib dipilih.")
+
+    ext = os.path.splitext(filename)[1].lower()
+    if ext != ".json":
+        return get_import_rows(uploaded_file)
+
+    uploaded_file.stream.seek(0)
+    payload = json.load(TextIOWrapper(uploaded_file.stream, encoding="utf-8-sig"))
+    items = extract_master_json_items(payload, master_type)
+    current_type = str(master_type or "").strip().lower()
+
+    if current_type == "bumo":
+        rows = [["id", "name", "category", "campaign_type", "is_active"]]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            rows.append([
+                item.get("id", ""),
+                item.get("name", ""),
+                item.get("category", ""),
+                item.get("campaign_type", ""),
+                item.get("is_active", 1),
+            ])
+    elif current_type == "kc_area":
+        rows = [["area_id", "area_name", "is_active"]]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            rows.append([
+                item.get("id") or item.get("area_id") or item.get("value") or "",
+                item.get("name") or item.get("area_name") or item.get("label") or "",
+                item.get("is_active", 1),
+            ])
+    else:
+        raise ValueError("Jenis master data tidak valid.")
+
+    if len(rows) == 1:
+        raise ValueError("File JSON tidak berisi data master yang bisa diimport.")
+    return rows
+
+
 def import_kc_tokens(uploaded_file):
     rows = get_import_rows(uploaded_file)
     first_row = [normalize_import_header(cell) for cell in rows[0]]
@@ -1889,7 +1955,7 @@ def sync_master_data_from_api(manual_bearer_token=""):
 
 
 def import_master_data(uploaded_file, master_type):
-    rows = get_import_rows(uploaded_file)
+    rows = get_master_import_rows(uploaded_file, master_type)
     first_row = [normalize_import_header(cell) for cell in rows[0]]
     current_type = str(master_type or "").strip().lower()
 

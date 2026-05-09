@@ -220,17 +220,18 @@
 
     <div class="section">
       <h2>Upload Master Data</h2>
-      <p>Pilih jenis data, lalu upload Excel atau CSV. Data dengan key yang sama akan di-update.</p>
+      <p>Pilih jenis data, lalu upload Excel, CSV, atau JSON response API. Data dengan key yang sama akan di-update.</p>
       <form class="import-form" method="post" action="/admin/master-data" enctype="multipart/form-data">
         <select class="input" name="master_type" required>
           <option value="bumo">BUMO</option>
           <option value="kc_area">KC Area</option>
         </select>
-        <input class="input" type="file" name="master_file" accept=".xlsx,.csv" required>
+        <input class="input" type="file" name="master_file" accept=".xlsx,.csv,.json" required>
         <button class="btn" type="submit">Import</button>
       </form>
       <div class="hint">
-        Header BUMO wajib: <code>name</code>. Header KC Area wajib: <code>area_id</code> dan <code>area_name</code>.
+        Header BUMO wajib: <code>name</code>. JSON BUMO boleh memakai format API <code>data.data</code> seperti hasil endpoint BUMO.
+        Header KC Area wajib: <code>area_id</code> dan <code>area_name</code>.
         Header opsional untuk keduanya: <code>is_active</code> atau <code>status</code>, isi dengan 1/0, aktif/nonaktif, ya/tidak.
       </div>
     </div>
