@@ -289,6 +289,25 @@ def init_db():
     """)
 
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS bumo_master (
+            name TEXT PRIMARY KEY,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT ''
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS kc_area_master (
+            area_id TEXT PRIMARY KEY,
+            area_name TEXT NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT ''
+        )
+    """)
+
+    cur.execute("""
         UPDATE customer_directory
         SET created_at = COALESCE(NULLIF(created_at, ''), NOW()::text),
             updated_at = COALESCE(NULLIF(updated_at, ''), NOW()::text)
@@ -306,6 +325,8 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_attempts_phone ON submission_attempts (phone_number, created_at DESC)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_attempts_status ON submission_attempts (status_local, created_at DESC)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_attempts_kc ON submission_attempts (kc_token, created_at DESC)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_bumo_master_active_name ON bumo_master (is_active, name)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_kc_area_master_active_name ON kc_area_master (is_active, area_name)")
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS team_leaders (
@@ -1657,6 +1678,327 @@ def import_kc_tokens(uploaded_file):
     if inserted + updated == 0:
         detail = f" Contoh error: {' | '.join(sample_errors)}" if sample_errors else ""
         raise ValueError(f"Tidak ada KC token valid yang berhasil diimport.{detail}")
+
+    return {
+        "inserted": inserted,
+        "updated": updated,
+        "invalid": invalid,
+        "skipped": skipped,
+        "sample_errors": sample_errors,
+    }
+
+
+def get_local_master_data_options():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT name
+        FROM bumo_master
+        WHERE is_active = 1
+        ORDER BY name ASC
+        """
+    )
+    bumo_rows = cur.fetchall()
+    cur.execute(
+        """
+        SELECT area_id, area_name
+        FROM kc_area_master
+        WHERE is_active = 1
+        ORDER BY area_name ASC
+        """
+    )
+    area_rows = cur.fetchall()
+    conn.close()
+    return {
+        "bumo_options": [{"label": row["name"], "value": row["name"]} for row in bumo_rows],
+        "kc_area_options": [{"label": row["area_name"], "value": str(row["area_id"])} for row in area_rows],
+    }
+
+
+def get_master_data_counts():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) AS total FROM bumo_master")
+    bumo_total = cur.fetchone()["total"]
+    cur.execute("SELECT COUNT(*) AS total FROM bumo_master WHERE is_active = 1")
+    bumo_active = cur.fetchone()["total"]
+    cur.execute("SELECT COUNT(*) AS total FROM kc_area_master")
+    area_total = cur.fetchone()["total"]
+    cur.execute("SELECT COUNT(*) AS total FROM kc_area_master WHERE is_active = 1")
+    area_active = cur.fetchone()["total"]
+    conn.close()
+    return {
+        "bumo_total": bumo_total,
+        "bumo_active": bumo_active,
+        "kc_area_total": area_total,
+        "kc_area_active": area_active,
+    }
+
+
+def get_master_data_cache_version():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT COALESCE(MAX(updated_at), '') AS version
+        FROM (
+            SELECT updated_at FROM bumo_master
+            UNION ALL
+            SELECT updated_at FROM kc_area_master
+        ) master_updates
+        """
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row["version"] if row else ""
+
+
+def get_master_data_sync_tokens():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT kc_token, kc_name, bearer_token
+        FROM valid_kc_tokens
+        WHERE is_active = 1
+          AND BTRIM(COALESCE(bearer_token, '')) != ''
+        ORDER BY kc_name ASC, kc_token ASC
+        """
+    )
+    rows = cur.fetchall()
+    conn.close()
+    if not rows:
+        raise ValueError("Tidak ada KC token aktif dengan bearer token untuk load master data.")
+    return rows
+
+
+def upsert_master_data_options(bumo_options, kc_area_options):
+    now_str = get_now_db_string()
+    inserted_bumo = 0
+    updated_bumo = 0
+    inserted_area = 0
+    updated_area = 0
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        for item in bumo_options:
+            name = str(item.get("value") or item.get("label") or "").strip()
+            if not name:
+                continue
+            cur.execute("SELECT 1 FROM bumo_master WHERE name = %s", (name,))
+            existing = cur.fetchone()
+            cur.execute(
+                """
+                INSERT INTO bumo_master (name, is_active, created_at, updated_at)
+                VALUES (%s, 1, %s, %s)
+                ON CONFLICT (name)
+                DO UPDATE SET
+                    is_active = 1,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (name, now_str, now_str),
+            )
+            if existing:
+                updated_bumo += 1
+            else:
+                inserted_bumo += 1
+
+        for item in kc_area_options:
+            area_id = str(item.get("value") or "").strip()
+            area_name = str(item.get("label") or "").strip()
+            if not area_id or not area_name:
+                continue
+            cur.execute("SELECT 1 FROM kc_area_master WHERE area_id = %s", (area_id,))
+            existing = cur.fetchone()
+            cur.execute(
+                """
+                INSERT INTO kc_area_master (area_id, area_name, is_active, created_at, updated_at)
+                VALUES (%s, %s, 1, %s, %s)
+                ON CONFLICT (area_id)
+                DO UPDATE SET
+                    area_name = EXCLUDED.area_name,
+                    is_active = 1,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (area_id, area_name, now_str, now_str),
+            )
+            if existing:
+                updated_area += 1
+            else:
+                inserted_area += 1
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    if inserted_bumo + updated_bumo == 0 or inserted_area + updated_area == 0:
+        raise ValueError("Data dari API kosong atau formatnya tidak sesuai.")
+
+    return {
+        "bumo_inserted": inserted_bumo,
+        "bumo_updated": updated_bumo,
+        "kc_area_inserted": inserted_area,
+        "kc_area_updated": updated_area,
+    }
+
+
+def sync_master_data_from_api(manual_bearer_token=""):
+    current_manual_token = str(manual_bearer_token or "").strip()
+    if current_manual_token:
+        bumo_options = fetch_bumo_options(current_manual_token)
+        kc_area_options = fetch_kc_area_options(current_manual_token)
+        result = upsert_master_data_options(bumo_options, kc_area_options)
+        result["kc_token"] = "manual"
+        result["kc_name"] = "Bearer token manual"
+        result["tried_count"] = 1
+        result["failed_tokens"] = []
+        return result
+
+    token_rows = get_master_data_sync_tokens()
+    failed_tokens = []
+
+    for token_row in token_rows:
+        bearer_token = (token_row["bearer_token"] or "").strip()
+        try:
+            bumo_options = fetch_bumo_options(bearer_token)
+            kc_area_options = fetch_kc_area_options(bearer_token)
+            result = upsert_master_data_options(bumo_options, kc_area_options)
+            result["kc_token"] = token_row["kc_token"]
+            result["kc_name"] = token_row["kc_name"]
+            result["tried_count"] = len(failed_tokens) + 1
+            result["failed_tokens"] = failed_tokens
+            return result
+        except Exception as exc:
+            failed_tokens.append(f"{token_row['kc_name']} ({token_row['kc_token']}): {exc}")
+            logger.warning(
+                "sync master data failed with kc_token=%s kc_name=%s error=%s",
+                token_row["kc_token"],
+                token_row["kc_name"],
+                exc,
+            )
+
+    preview = "; ".join(failed_tokens[:3])
+    if len(failed_tokens) > 3:
+        preview += f"; dan {len(failed_tokens) - 3} token lain"
+    raise ValueError(f"Semua bearer token aktif gagal load master data. {preview}")
+
+
+def import_master_data(uploaded_file, master_type):
+    rows = get_import_rows(uploaded_file)
+    first_row = [normalize_import_header(cell) for cell in rows[0]]
+    current_type = str(master_type or "").strip().lower()
+
+    header_aliases = {
+        "bumo": {
+            "name": {"name", "nama", "bumo", "nama bumo", "current bumo"},
+            "is_active": {"is active", "aktif", "active", "status"},
+        },
+        "kc_area": {
+            "area_id": {"id", "area id", "kc area id", "id area", "value", "kode"},
+            "area_name": {"name", "nama", "area", "area name", "kc area", "nama area"},
+            "is_active": {"is active", "aktif", "active", "status"},
+        },
+    }
+
+    if current_type not in header_aliases:
+        raise ValueError("Jenis master data tidak valid.")
+
+    header_index = {}
+    for field_name, aliases in header_aliases[current_type].items():
+        for idx, header in enumerate(first_row):
+            if header in aliases:
+                header_index[field_name] = idx
+                break
+
+    required_fields = ["name"] if current_type == "bumo" else ["area_id", "area_name"]
+    missing_fields = [field for field in required_fields if field not in header_index]
+    if missing_fields:
+        if current_type == "bumo":
+            raise ValueError("Header wajib untuk BUMO: name.")
+        raise ValueError("Header wajib untuk KC Area: area_id dan area_name.")
+
+    inserted = 0
+    updated = 0
+    invalid = 0
+    skipped = 0
+    sample_errors = []
+    now_str = get_now_db_string()
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        for row_number, row in enumerate(rows[1:], start=2):
+            if row is None or all(str(cell or "").strip() == "" for cell in row):
+                skipped += 1
+                continue
+
+            try:
+                is_active = parse_optional_active_value(get_import_cell(row, header_index, "is_active"), 1)
+                if current_type == "bumo":
+                    name = str(get_import_cell(row, header_index, "name") or "").strip()
+                    if not name:
+                        raise ValueError("Nama BUMO kosong.")
+
+                    cur.execute("SELECT 1 FROM bumo_master WHERE name = %s", (name,))
+                    existing = cur.fetchone()
+                    cur.execute(
+                        """
+                        INSERT INTO bumo_master (name, is_active, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (name)
+                        DO UPDATE SET
+                            is_active = EXCLUDED.is_active,
+                            updated_at = EXCLUDED.updated_at
+                        """,
+                        (name, int(is_active), now_str, now_str),
+                    )
+                else:
+                    area_id = str(get_import_cell(row, header_index, "area_id") or "").strip()
+                    area_name = str(get_import_cell(row, header_index, "area_name") or "").strip()
+                    if not area_id:
+                        raise ValueError("ID KC Area kosong.")
+                    if not area_name:
+                        raise ValueError("Nama KC Area kosong.")
+
+                    cur.execute("SELECT 1 FROM kc_area_master WHERE area_id = %s", (area_id,))
+                    existing = cur.fetchone()
+                    cur.execute(
+                        """
+                        INSERT INTO kc_area_master (area_id, area_name, is_active, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (area_id)
+                        DO UPDATE SET
+                            area_name = EXCLUDED.area_name,
+                            is_active = EXCLUDED.is_active,
+                            updated_at = EXCLUDED.updated_at
+                        """,
+                        (area_id, area_name, int(is_active), now_str, now_str),
+                    )
+
+                if existing:
+                    updated += 1
+                else:
+                    inserted += 1
+            except Exception as exc:
+                invalid += 1
+                if len(sample_errors) < 3:
+                    sample_errors.append(f"Baris {row_number}: {exc}")
+
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    if inserted + updated == 0:
+        detail = f" Contoh error: {' | '.join(sample_errors)}" if sample_errors else ""
+        raise ValueError(f"Tidak ada master data valid yang berhasil diimport.{detail}")
 
     return {
         "inserted": inserted,
@@ -3136,17 +3478,17 @@ def api_master_data():
             clear_user_session()
             return jsonify({"error": "Kuota KC token hari ini sudah habis dan token otomatis dinonaktifkan."}), 401
 
-        bearer_token = (kc_detail["bearer_token"] or "").strip()
-        if not bearer_token:
-            return jsonify({"error": "Bearer token untuk KC ini belum diset."}), 400
-
-        bumo_options = fetch_bumo_options(bearer_token)
-        kc_area_options = fetch_kc_area_options(bearer_token)
+        local_master_data = get_local_master_data_options()
+        if local_master_data["bumo_options"] and local_master_data["kc_area_options"]:
+            return jsonify({
+                "bumo_options": local_master_data["bumo_options"],
+                "kc_area_options": local_master_data["kc_area_options"],
+                "source": "database",
+            })
 
         return jsonify({
-            "bumo_options": bumo_options,
-            "kc_area_options": kc_area_options,
-        })
+            "error": "Master data BUMO/KC Area lokal belum tersedia. Admin perlu load master data terlebih dahulu.",
+        }), 400
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code if e.response is not None else None
         if status_code == 401:
@@ -3580,6 +3922,7 @@ def user_app():
         reset_form=reset_form,
         delayed_reset_seconds=delayed_reset_seconds,
         kc_token=kc_token,
+        master_data_cache_version=get_master_data_cache_version(),
     )
 
 
@@ -4549,6 +4892,62 @@ def admin_import_tokens():
     except Exception as e:
         logger.exception("admin_import_tokens error")
         return redirect(url_for("admin_dashboard", token_import_error=str(e)))
+
+
+@app.route("/admin/master-data", methods=["GET", "POST"])
+@admin_required
+def admin_master_data():
+    error = request.args.get("error", "")
+    success = request.args.get("success", "")
+
+    if request.method == "POST":
+        try:
+            master_type = request.form.get("master_type", "").strip()
+            master_file = request.files.get("master_file")
+            if not master_file or not master_file.filename:
+                raise ValueError("File import wajib dipilih.")
+
+            result = import_master_data(master_file, master_type)
+            label = "BUMO" if master_type == "bumo" else "KC Area"
+            success = (
+                f"Import {label} selesai. Baru: {result['inserted']} | "
+                f"Update: {result['updated']} | Invalid: {result['invalid']} | "
+                f"Kosong dilewati: {result['skipped']}"
+            )
+            if result["sample_errors"]:
+                success += f" | Contoh error: {'; '.join(result['sample_errors'])}"
+        except Exception as e:
+            logger.exception("admin_master_data import error")
+            error = str(e)
+
+    return render_template(
+        "admin_master_data.html",
+        error=error,
+        success=success,
+        counts=get_master_data_counts(),
+    )
+
+
+@app.route("/admin/master-data/sync", methods=["POST"])
+@admin_required
+def admin_sync_master_data():
+    try:
+        bearer_token = request.form.get("bearer_token", "").strip()
+        if not bearer_token:
+            raise ValueError("Bearer token manual wajib diisi untuk load BUMO/KC Area.")
+
+        result = sync_master_data_from_api(bearer_token)
+        message = (
+            "Load BUMO/KC Area dari API selesai. "
+            f"Token sumber: {result['kc_name']} ({result['kc_token']}) | "
+            f"Percobaan token: {result['tried_count']} | "
+            f"BUMO baru: {result['bumo_inserted']} | BUMO update: {result['bumo_updated']} | "
+            f"KC Area baru: {result['kc_area_inserted']} | KC Area update: {result['kc_area_updated']}"
+        )
+        return redirect(url_for("admin_master_data", success=message))
+    except Exception as e:
+        logger.exception("admin_sync_master_data error")
+        return redirect(url_for("admin_master_data", error=str(e)))
 
 
 @app.route("/admin/token/export")

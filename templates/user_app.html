@@ -751,7 +751,7 @@
     const loadingTimer = document.getElementById('loadingTimer');
     const shouldResetFormAfterSubmit = {{ reset_form|tojson }};
     const delayedResetSeconds = {{ delayed_reset_seconds|tojson }};
-    const masterDataCacheKey = {{ ('kc_master_data::' ~ kc_token)|tojson }};
+    const masterDataCacheKey = {{ ('kc_master_data::' ~ kc_token ~ '::' ~ master_data_cache_version)|tojson }};
     const masterDataCacheTtlMs = 6 * 60 * 60 * 1000;
     const kcAreaMinSearchChars = 2;
     const kcAreaMaxRenderedOptions = 60;
