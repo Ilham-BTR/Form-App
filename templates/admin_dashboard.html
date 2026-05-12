@@ -368,6 +368,7 @@
       <div class="actions">
         <a class="btn btn-sm" href="/admin/token/add">Tambah KC Token</a>
         <a class="btn btn-sm btn-secondary" href="#import-token">Import Detail Token</a>
+        <a class="btn btn-sm btn-secondary" href="#batch-bearer">Batch Ambil Bearer</a>
         <a class="btn btn-sm btn-secondary" href="/admin/master-data">Import BUMO/KC Area</a>
         <a class="btn btn-sm btn-secondary" href="/admin/token/export"
           onclick="return confirm('Export berisi bearer token asli. Lanjut download?');">Export Detail Token</a>
@@ -388,7 +389,14 @@
     </div>
 
     {% if token_import_message %}
-    <div class="alert alert-success">{{ token_import_message }}</div>
+    <div class="alert alert-success">
+      {{ token_import_message }}
+      {% if batch_bearer_export_id %}
+      <div style="margin-top: 10px;">
+        <a class="btn btn-sm" href="/admin/token/batch-bearer/export/{{ batch_bearer_export_id }}">Export Hasil Batch Excel</a>
+      </div>
+      {% endif %}
+    </div>
     {% endif %}
 
     {% if token_import_error %}
@@ -409,6 +417,21 @@
         Header opsional: <b>token_area</b>, <b>kc_token</b>, <b>kc_username</b>, <b>kc_password</b>, dan <b>sudah_terpakai</b>.
         Jika KC token kosong, sistem membuat token otomatis dengan format KC-xxxxxxxxxxxxxxxx.
         Export detail token berisi bearer token, username, password, dan pemakaian hari ini.
+      </div>
+    </div>
+
+    <div class="section" id="batch-bearer">
+      <h2>Batch Excel Ambil Bearer Token</h2>
+      <p class="section-desc">Upload Excel atau CSV berisi username dan password KC untuk login massal dan menyimpan bearer token terbaru.</p>
+      <form class="import-form" method="post" action="/admin/token/batch-bearer" enctype="multipart/form-data"
+        onsubmit="return confirm('Mulai ambil bearer token massal? Proses ini memakai 2captcha dan bisa berjalan cukup lama.');">
+        <input class="input" type="file" name="batch_bearer_file" accept=".xlsx,.csv" required>
+        <button class="btn btn-sm" type="submit">Ambil Bearer Massal</button>
+      </form>
+      <div class="hint">
+        Format sederhana sama seperti script desktop: kolom A berisi <b>username</b>, kolom B berisi <b>password</b>.
+        Header username/password boleh ada atau langsung data. Jika username sudah ada di daftar KC token, bearer token akan diupdate.
+        Jika belum ada, sistem membuat KC token baru otomatis dengan nama KC sesuai username.
       </div>
     </div>
 
@@ -492,6 +515,8 @@
             <option value="kc_username" {% if selected_token_sort_by == 'kc_username' %}selected{% endif %}>Username</option>
             <option value="daily_limit" {% if selected_token_sort_by == 'daily_limit' %}selected{% endif %}>Limit Harian</option>
             <option value="total_submit" {% if selected_token_sort_by == 'total_submit' %}selected{% endif %}>Total Submit (NOC)</option>
+            <option value="last_bearer_updated_at" {% if selected_token_sort_by == 'last_bearer_updated_at' %}selected{% endif %}>Update Bearer</option>
+            <option value="last_submit_at" {% if selected_token_sort_by == 'last_submit_at' %}selected{% endif %}>Submit Terakhir</option>
             <option value="is_active" {% if selected_token_sort_by == 'is_active' %}selected{% endif %}>Status</option>
           </select>
         </div>
@@ -547,6 +572,8 @@
             <th>Username</th>
             <th>Password</th>
             <th>Bearer Token</th>
+            <th>Update Bearer</th>
+            <th>Submit Terakhir</th>
             <th>Limit Harian</th>
             <th>Total Submit (NOC)</th>
             <th>Beli (NOT)</th>
@@ -567,6 +594,8 @@
             <td>{{ row.kc_username }}</td>
             <td><code>{{ row.kc_password }}</code></td>
             <td><code>{{ row.bearer_token_masked }}</code></td>
+            <td>{{ row.last_bearer_updated_at }}</td>
+            <td>{{ row.last_submit_at }}</td>
             <td>{{ row.daily_limit }}</td>
             <td>{{ row.total_submit }}</td>
             <td>{{ row.purchase_yes }}</td>
@@ -603,7 +632,7 @@
           {% endfor %}
           {% if not token_rows %}
           <tr>
-            <td colspan="15">Belum ada KC token.</td>
+            <td colspan="17">Belum ada KC token.</td>
           </tr>
           {% endif %}
         </tbody>
@@ -815,7 +844,7 @@
 
     function renderTokenRows(rows) {
       if (!rows.length) {
-        tokenTableBody.innerHTML = '<tr><td colspan="15">Belum ada KC token.</td></tr>';
+        tokenTableBody.innerHTML = '<tr><td colspan="17">Belum ada KC token.</td></tr>';
         updateTokenSelectionState();
         return;
       }
@@ -836,6 +865,8 @@
             <td>${escapeHtml(row.kc_username)}</td>
             <td><code>${escapeHtml(row.kc_password)}</code></td>
             <td><code>${escapeHtml(row.bearer_token_masked)}</code></td>
+            <td>${escapeHtml(row.last_bearer_updated_at ?? '-')}</td>
+            <td>${escapeHtml(row.last_submit_at ?? '-')}</td>
             <td>${escapeHtml(row.daily_limit)}</td>
             <td>${escapeHtml(row.total_submit)}</td>
             <td>${escapeHtml(row.purchase_yes ?? 0)}</td>

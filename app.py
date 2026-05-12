@@ -196,7 +196,8 @@ def init_db():
             kc_password TEXT NOT NULL DEFAULT '',
             bearer_token TEXT NOT NULL,
             daily_limit INTEGER NOT NULL DEFAULT 40,
-            is_active INTEGER NOT NULL DEFAULT 1
+            is_active INTEGER NOT NULL DEFAULT 1,
+            last_bearer_updated_at TEXT NOT NULL DEFAULT ''
         )
     """)
 
@@ -223,6 +224,11 @@ def init_db():
     cur.execute("""
         ALTER TABLE valid_kc_tokens
         ADD COLUMN IF NOT EXISTS created_date TEXT NOT NULL DEFAULT ''
+    """)
+
+    cur.execute("""
+        ALTER TABLE valid_kc_tokens
+        ADD COLUMN IF NOT EXISTS last_bearer_updated_at TEXT NOT NULL DEFAULT ''
     """)
 
     cur.execute("""
@@ -383,6 +389,10 @@ def get_now_wib():
 
 def get_today_wib():
     return get_now_wib().date().isoformat()
+
+
+def get_now_wib_string():
+    return get_now_wib().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def is_token_expired():
@@ -1517,6 +1527,15 @@ def parse_active_value(value):
     raise ValueError("Status aktif harus berisi 1/0, ya/tidak, atau aktif/nonaktif.")
 
 
+def import_cell_to_text(value):
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    return text
+
+
 def get_import_rows(uploaded_file):
     filename = secure_filename(uploaded_file.filename or "")
     if not filename:
@@ -1675,7 +1694,7 @@ def import_kc_tokens(uploaded_file):
 
                 cur.execute(
                     """
-                    SELECT bearer_token, daily_limit, is_active, team, token_area, kc_username, kc_password
+                    SELECT bearer_token, daily_limit, is_active, team, token_area, kc_username, kc_password, last_bearer_updated_at
                     FROM valid_kc_tokens
                     WHERE kc_token = %s
                     """,
@@ -1698,9 +1717,10 @@ def import_kc_tokens(uploaded_file):
                 cur.execute(
                     """
                     INSERT INTO valid_kc_tokens (
-                        kc_token, kc_name, team, token_area, kc_username, kc_password, bearer_token, daily_limit, is_active
+                        kc_token, kc_name, team, token_area, kc_username, kc_password,
+                        bearer_token, daily_limit, is_active, last_bearer_updated_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (kc_token)
                     DO UPDATE SET
                         kc_name = EXCLUDED.kc_name,
@@ -1709,10 +1729,26 @@ def import_kc_tokens(uploaded_file):
                         kc_username = EXCLUDED.kc_username,
                         kc_password = EXCLUDED.kc_password,
                         bearer_token = EXCLUDED.bearer_token,
+                        last_bearer_updated_at = CASE
+                            WHEN valid_kc_tokens.bearer_token IS DISTINCT FROM EXCLUDED.bearer_token
+                            THEN EXCLUDED.last_bearer_updated_at
+                            ELSE valid_kc_tokens.last_bearer_updated_at
+                        END,
                         daily_limit = EXCLUDED.daily_limit,
                         is_active = EXCLUDED.is_active
                     """,
-                    (kc_token, kc_name, team, token_area, kc_username, kc_password, bearer_token, daily_limit, int(is_active)),
+                    (
+                        kc_token,
+                        kc_name,
+                        team,
+                        token_area,
+                        kc_username,
+                        kc_password,
+                        bearer_token,
+                        daily_limit,
+                        int(is_active),
+                        get_now_wib_string(),
+                    ),
                 )
                 if "used_today" in header_index:
                     used_today = parse_nonnegative_int(get_import_cell(row, header_index, "used_today"), "Sudah terpakai")
@@ -1752,6 +1788,271 @@ def import_kc_tokens(uploaded_file):
         "skipped": skipped,
         "sample_errors": sample_errors,
     }
+
+
+def find_kc_token_by_username(username, cur):
+    normalized = str(username or "").strip()
+    if not normalized:
+        return None
+    cur.execute(
+        """
+        SELECT kc_token, kc_name, team, token_area, daily_limit, is_active
+        FROM valid_kc_tokens
+        WHERE LOWER(BTRIM(kc_username)) = LOWER(BTRIM(%s))
+        LIMIT 1
+        """,
+        (normalized,),
+    )
+    return cur.fetchone()
+
+
+def login_kc_credentials_for_bearer(username, password, captcha_key, secret):
+    recaptcha_token = _sl_solve_recaptcha(captcha_key)
+    ts = _sl_utc_timestamp_ms()
+    body_obj = {
+        "identifier": username,
+        "password": base64.b64encode(password.encode()).decode(),
+        "type_of_web": _SL_DEFAULT_TYPE_OF_WEB,
+        "recaptcha_token": recaptcha_token,
+    }
+    hash_val = _sl_build_hash(secret, ts, _SL_AUTH_ENDPOINT, body_obj)
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Content-Type": "application/json",
+        "Dnt": "1",
+        "Hash": hash_val,
+        "Origin": "https://letscml.id",
+        "Referer": "https://letscml.id/",
+        "Timestamp": ts,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
+    }
+    resp = requests.post(_SL_BASE_URL + _SL_AUTH_ENDPOINT, json=body_obj, headers=headers, timeout=45)
+    token, token_source = _sl_extract_token(resp)
+    if not token:
+        try:
+            preview = str(resp.json())[:200]
+        except Exception:
+            preview = resp.text[:200]
+        raise ValueError(f"Token tidak ditemukan. Status: {resp.status_code}. {preview}")
+    return token, token_source
+
+
+def parse_batch_bearer_rows(uploaded_file):
+    rows = get_import_rows(uploaded_file)
+    if not rows:
+        raise ValueError("File import kosong.")
+
+    first_row = [normalize_import_header(cell) for cell in rows[0]]
+    has_header = (
+        len(first_row) >= 2
+        and first_row[0] in {"username", "user", "identifier", "kc username", "login username"}
+        and first_row[1] in {"password", "pass", "kc password", "login password"}
+    )
+    data_rows = rows[1:] if has_header else rows
+
+    parsed_rows = []
+    skipped = 0
+    for row_number, row in enumerate(data_rows, start=2 if has_header else 1):
+        if row is None or all(import_cell_to_text(cell) == "" for cell in row):
+            skipped += 1
+            continue
+        username = import_cell_to_text(row[0] if len(row) > 0 else "")
+        password = import_cell_to_text(row[1] if len(row) > 1 else "")
+        if not username or not password:
+            skipped += 1
+            continue
+        parsed_rows.append({"row": row_number, "username": username, "password": password})
+
+    if not parsed_rows:
+        raise ValueError("Tidak ada row valid. Isi kolom A=username dan B=password.")
+    return parsed_rows, skipped
+
+
+def batch_import_bearer_tokens(uploaded_file):
+    secret = os.environ.get("APP_HMAC_SECRET", "").strip()
+    if not secret:
+        raise ValueError("APP_HMAC_SECRET belum di-set.")
+
+    captcha_key = os.environ.get("TWOCAPTCHA_API_KEY", "").strip()
+    if not captcha_key:
+        raise ValueError("TWOCAPTCHA_API_KEY belum di-set.")
+
+    rows, skipped = parse_batch_bearer_rows(uploaded_file)
+    inserted = 0
+    updated = 0
+    failed = 0
+    sample_errors = []
+    result_rows = []
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        for item in rows:
+            processed_at = get_now_wib().strftime("%Y-%m-%d %H:%M:%S")
+            processed_date = processed_at[:10]
+            username = item["username"]
+            password = item["password"]
+            try:
+                bearer_token, token_source = login_kc_credentials_for_bearer(username, password, captcha_key, secret)
+                existing = find_kc_token_by_username(username, cur)
+                if existing:
+                    cur.execute(
+                        """
+                        UPDATE valid_kc_tokens
+                        SET kc_username = %s,
+                            kc_password = %s,
+                            bearer_token = %s,
+                            last_bearer_updated_at = %s
+                        WHERE kc_token = %s
+                        """,
+                        (username, password, bearer_token, get_now_wib_string(), existing["kc_token"]),
+                    )
+                    updated += 1
+                    result_rows.append({
+                        "row": item["row"],
+                        "tanggal": processed_date,
+                        "waktu_proses": processed_at,
+                        "username": username,
+                        "password": password,
+                        "kc_token": existing["kc_token"],
+                        "kc_name": existing["kc_name"],
+                        "bearer_token": bearer_token,
+                        "status": "UPDATED",
+                        "error": "",
+                    })
+                    logger.info(
+                        "Batch bearer updated kc_token=%s username=%s source=%s",
+                        existing["kc_token"],
+                        username,
+                        token_source,
+                    )
+                else:
+                    kc_token = generate_unique_kc_token(cur)
+                    cur.execute(
+                        """
+                        INSERT INTO valid_kc_tokens (
+                            kc_token, kc_name, team, token_area, kc_username, kc_password,
+                            bearer_token, daily_limit, is_active, created_date, last_bearer_updated_at
+                        )
+                        VALUES (%s, %s, '', '', %s, %s, %s, %s, 1, %s, %s)
+                        """,
+                        (
+                            kc_token,
+                            username,
+                            username,
+                            password,
+                            bearer_token,
+                            DEFAULT_DAILY_LIMIT,
+                            get_today_wib(),
+                            get_now_wib_string(),
+                        ),
+                    )
+                    inserted += 1
+                    result_rows.append({
+                        "row": item["row"],
+                        "tanggal": processed_date,
+                        "waktu_proses": processed_at,
+                        "username": username,
+                        "password": password,
+                        "kc_token": kc_token,
+                        "kc_name": username,
+                        "bearer_token": bearer_token,
+                        "status": "INSERTED",
+                        "error": "",
+                    })
+                    logger.info("Batch bearer inserted kc_token=%s username=%s source=%s", kc_token, username, token_source)
+                conn.commit()
+            except Exception as exc:
+                conn.rollback()
+                failed += 1
+                result_rows.append({
+                    "row": item["row"],
+                    "tanggal": processed_date,
+                    "waktu_proses": processed_at,
+                    "username": username,
+                    "password": password,
+                    "kc_token": "",
+                    "kc_name": "",
+                    "bearer_token": "",
+                    "status": "FAILED",
+                    "error": str(exc),
+                })
+                logger.warning("Batch bearer failed row=%s username=%s error=%s", item["row"], username, exc)
+                if len(sample_errors) < 5:
+                    sample_errors.append(f"Baris {item['row']} ({username}): {exc}")
+    finally:
+        conn.close()
+
+    if inserted + updated == 0:
+        detail = f" Contoh error: {' | '.join(sample_errors)}" if sample_errors else ""
+        raise ValueError(f"Tidak ada bearer token yang berhasil diambil.{detail}")
+
+    return {
+        "total": len(rows),
+        "inserted": inserted,
+        "updated": updated,
+        "failed": failed,
+        "skipped": skipped,
+        "sample_errors": sample_errors,
+        "rows": result_rows,
+    }
+
+
+def build_batch_bearer_export_excel(rows):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Batch Bearer"
+    ws.append(["row", "tanggal", "waktu_proses", "username", "password", "kc_token", "kc_name", "bearer_token", "status", "error"])
+    for item in rows:
+        ws.append([
+            item.get("row", ""),
+            item.get("tanggal", ""),
+            item.get("waktu_proses", ""),
+            item.get("username", ""),
+            item.get("password", ""),
+            item.get("kc_token", ""),
+            item.get("kc_name", ""),
+            item.get("bearer_token", ""),
+            item.get("status", ""),
+            item.get("error", ""),
+        ])
+    widths = {
+        "A": 8,
+        "B": 14,
+        "C": 22,
+        "D": 28,
+        "E": 28,
+        "F": 24,
+        "G": 32,
+        "H": 90,
+        "I": 14,
+        "J": 70,
+    }
+    for column, width in widths.items():
+        ws.column_dimensions[column].width = width
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output.getvalue()
+
+
+def save_batch_bearer_export(rows):
+    export_id = secrets.token_urlsafe(12)
+    export_dir = os.path.join(tempfile.gettempdir(), "kc_batch_bearer_exports")
+    os.makedirs(export_dir, exist_ok=True)
+    export_path = os.path.join(export_dir, f"{export_id}.xlsx")
+    with open(export_path, "wb") as fh:
+        fh.write(build_batch_bearer_export_excel(rows))
+    return export_id
+
+
+def get_batch_bearer_export_path(export_id):
+    safe_id = re.sub(r"[^A-Za-z0-9_-]", "", str(export_id or ""))
+    if not safe_id:
+        return ""
+    export_dir = os.path.join(tempfile.gettempdir(), "kc_batch_bearer_exports")
+    return os.path.join(export_dir, f"{safe_id}.xlsx")
 
 
 def get_local_master_data_options():
@@ -2153,7 +2454,8 @@ def get_kc_token_detail(kc_token):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT kc_token, kc_name, team, token_area, kc_username, kc_password, bearer_token, daily_limit, is_active, created_date
+        SELECT kc_token, kc_name, team, token_area, kc_username, kc_password,
+               bearer_token, daily_limit, is_active, created_date, last_bearer_updated_at
         FROM valid_kc_tokens
         WHERE kc_token = %s
     """, (kc_token,))
@@ -2166,9 +2468,17 @@ def get_all_kc_tokens():
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT kc_token, kc_name, team, token_area, kc_username, kc_password, bearer_token, daily_limit, is_active
-        FROM valid_kc_tokens
-        ORDER BY token_area ASC, kc_name ASC, kc_token ASC
+        SELECT v.kc_token, v.kc_name, v.team, v.token_area, v.kc_username, v.kc_password,
+               v.bearer_token, v.daily_limit, v.is_active,
+               COALESCE(v.last_bearer_updated_at, '') AS last_bearer_updated_at,
+               COALESCE(last_submit.last_submit_at, '') AS last_submit_at
+        FROM valid_kc_tokens v
+        LEFT JOIN (
+            SELECT kc_token, MAX(created_at) AS last_submit_at
+            FROM submission_attempts
+            GROUP BY kc_token
+        ) last_submit ON last_submit.kc_token = v.kc_token
+        ORDER BY v.token_area ASC, v.kc_name ASC, v.kc_token ASC
     """)
     rows = cur.fetchall()
     conn.close()
@@ -2222,7 +2532,18 @@ def token_rows_value_to_limit(rows_value):
 
 
 def normalize_token_sort(sort_by, sort_dir):
-    allowed_sort_by = {"kc_name", "team", "token_area", "kc_token", "kc_username", "daily_limit", "total_submit", "is_active"}
+    allowed_sort_by = {
+        "kc_name",
+        "team",
+        "token_area",
+        "kc_token",
+        "kc_username",
+        "daily_limit",
+        "total_submit",
+        "is_active",
+        "last_bearer_updated_at",
+        "last_submit_at",
+    }
     current_sort_by = str(sort_by or "kc_name").strip().lower()
     if current_sort_by not in allowed_sort_by:
         current_sort_by = "kc_name"
@@ -2274,6 +2595,8 @@ def filter_sort_limit_token_rows(rows, filter_text="", status_filter="", area_fi
                 str(row.get("kc_username") or ""),
                 str(row.get("kc_password") or ""),
                 str(row.get("bearer_token_masked") or ""),
+                str(row.get("last_bearer_updated_at") or ""),
+                str(row.get("last_submit_at") or ""),
                 str(row.get("daily_limit") or ""),
                 str(row.get("total_submit") or ""),
                 "aktif" if row.get("is_active") == 1 else "nonaktif",
@@ -2307,10 +2630,22 @@ def create_kc_token(kc_token, kc_name, token_area, bearer_token, daily_limit, kc
     ensure_kc_username_unique(kc_username, cur=cur)
     cur.execute("""
         INSERT INTO valid_kc_tokens (
-            kc_token, kc_name, team, token_area, kc_username, kc_password, bearer_token, daily_limit, is_active, created_date
+            kc_token, kc_name, team, token_area, kc_username, kc_password,
+            bearer_token, daily_limit, is_active, created_date, last_bearer_updated_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1, %s)
-    """, (kc_token, kc_name, team, token_area, kc_username, kc_password, bearer_token, daily_limit, get_today_wib()))
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1, %s, %s)
+    """, (
+        kc_token,
+        kc_name,
+        team,
+        token_area,
+        kc_username,
+        kc_password,
+        bearer_token,
+        daily_limit,
+        get_today_wib(),
+        get_now_wib_string(),
+    ))
     conn.commit()
     conn.close()
 
@@ -2331,6 +2666,13 @@ def update_kc_token(
     cur = conn.cursor()
     if kc_username is not None:
         ensure_kc_username_unique(kc_username, exclude_kc_token=old_kc_token, cur=cur)
+    cur.execute("SELECT bearer_token, last_bearer_updated_at FROM valid_kc_tokens WHERE kc_token = %s", (old_kc_token,))
+    existing_token_row = cur.fetchone()
+    last_bearer_updated_at = (
+        get_now_wib_string()
+        if not existing_token_row or (existing_token_row["bearer_token"] or "") != (bearer_token or "")
+        else existing_token_row["last_bearer_updated_at"]
+    )
 
     if old_kc_token != new_kc_token:
         cur.execute("""
@@ -2349,9 +2691,21 @@ def update_kc_token(
                 kc_username = COALESCE(%s, kc_username),
                 kc_password = COALESCE(%s, kc_password),
                 bearer_token = %s,
+                last_bearer_updated_at = %s,
                 daily_limit = %s
             WHERE kc_token = %s
-        """, (new_kc_token, kc_name, team, token_area, kc_username, kc_password, bearer_token, daily_limit, old_kc_token))
+        """, (
+            new_kc_token,
+            kc_name,
+            team,
+            token_area,
+            kc_username,
+            kc_password,
+            bearer_token,
+            last_bearer_updated_at,
+            daily_limit,
+            old_kc_token,
+        ))
     else:
         cur.execute("""
             UPDATE valid_kc_tokens
@@ -2362,10 +2716,23 @@ def update_kc_token(
                 kc_username = COALESCE(%s, kc_username),
                 kc_password = COALESCE(%s, kc_password),
                 bearer_token = %s,
+                last_bearer_updated_at = %s,
                 daily_limit = %s,
                 is_active = %s
             WHERE kc_token = %s
-        """, (new_kc_token, kc_name, team, token_area, kc_username, kc_password, bearer_token, daily_limit, int(is_active), old_kc_token))
+        """, (
+            new_kc_token,
+            kc_name,
+            team,
+            token_area,
+            kc_username,
+            kc_password,
+            bearer_token,
+            last_bearer_updated_at,
+            daily_limit,
+            int(is_active),
+            old_kc_token,
+        ))
 
     conn.commit()
     conn.close()
@@ -4107,6 +4474,8 @@ def build_admin_dashboard_context(args):
             "kc_username": row["kc_username"] or "-",
             "kc_password": row["kc_password"] or "-",
             "bearer_token_masked": mask_bearer_token(row["bearer_token"]),
+            "last_bearer_updated_at": row.get("last_bearer_updated_at") or "-",
+            "last_submit_at": row.get("last_submit_at") or "-",
             "daily_limit": row["daily_limit"],
             "total_submit": usage_by_token.get(row["kc_token"], 0),
             "purchase_yes": purchase_counts.get("purchase_yes", 0),
@@ -4154,6 +4523,7 @@ def build_admin_dashboard_context(args):
         "recent_submissions": recent_submissions,
         "token_import_message": args.get("token_import_message", ""),
         "token_import_error": args.get("token_import_error", ""),
+        "batch_bearer_export_id": args.get("batch_bearer_export_id", ""),
         "selected_token_filter": selected_token_filter,
         "selected_token_status_filter": selected_token_status_filter,
         "selected_token_area_filter": selected_token_area_filter,
@@ -4958,6 +5328,46 @@ def admin_import_tokens():
     except Exception as e:
         logger.exception("admin_import_tokens error")
         return redirect(url_for("admin_dashboard", token_import_error=str(e)))
+
+
+@app.route("/admin/token/batch-bearer", methods=["POST"])
+@admin_required
+def admin_batch_bearer_tokens():
+    try:
+        batch_file = request.files.get("batch_bearer_file")
+        if not batch_file or not batch_file.filename:
+            raise ValueError("File batch bearer wajib dipilih.")
+
+        result = batch_import_bearer_tokens(batch_file)
+        message = (
+            f"Batch ambil bearer selesai. Total: {result['total']} | "
+            f"Baru: {result['inserted']} | Update: {result['updated']} | "
+            f"Gagal: {result['failed']} | Kosong dilewati: {result['skipped']}"
+        )
+        if result["sample_errors"]:
+            message += f" | Contoh error: {'; '.join(result['sample_errors'])}"
+        export_id = save_batch_bearer_export(result["rows"])
+        return redirect(url_for("admin_dashboard", token_import_message=message, batch_bearer_export_id=export_id))
+    except Exception as e:
+        logger.exception("admin_batch_bearer_tokens error")
+        return redirect(url_for("admin_dashboard", token_import_error=str(e)))
+
+
+@app.route("/admin/token/batch-bearer/export/<export_id>")
+@admin_required
+def admin_export_batch_bearer_tokens(export_id):
+    export_path = get_batch_bearer_export_path(export_id)
+    if not export_path or not os.path.exists(export_path):
+        return redirect(url_for("admin_dashboard", token_import_error="File export hasil batch tidak ditemukan atau sudah dibersihkan."))
+
+    with open(export_path, "rb") as fh:
+        excel_content = fh.read()
+    today = get_today_wib()
+    return Response(
+        excel_content,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="hasil-batch-bearer-{today}.xlsx"'},
+    )
 
 
 @app.route("/admin/master-data", methods=["GET", "POST"])
