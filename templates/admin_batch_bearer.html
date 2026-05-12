@@ -49,6 +49,7 @@
       padding: 20px;
       box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
       margin-bottom: 18px;
+      overflow-x: auto;
     }
 
     .section h2 {
@@ -127,6 +128,71 @@
       align-items: center;
     }
 
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 14px;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid #e2e8f0;
+      padding: 10px;
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+
+    th {
+      color: #475569;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+      background: #f8fafc;
+    }
+
+    code {
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .token-cell {
+      max-width: 360px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .error-cell {
+      max-width: 360px;
+      white-space: normal;
+      color: #991b1b;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 5px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .badge-inserted {
+      background: #dcfce7;
+      color: #14532d;
+    }
+
+    .badge-updated {
+      background: #dbeafe;
+      color: #1e3a8a;
+    }
+
+    .badge-failed {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
     @media (max-width: 640px) {
       .batch-form {
         grid-template-columns: 1fr;
@@ -175,6 +241,53 @@
         Jika belum ada, sistem membuat KC token baru otomatis dengan nama KC sesuai username.
       </div>
     </div>
+
+    {% if result_rows %}
+    <div class="section">
+      <h2>Hasil Batch</h2>
+      <p class="section-desc">Ringkasan row yang baru diproses. Token panjang dipotong di tampilan, tapi tetap lengkap di export Excel.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Row</th>
+            <th>Tanggal</th>
+            <th>Waktu Proses</th>
+            <th>Username</th>
+            <th>Password</th>
+            <th>KC Token</th>
+            <th>Nama KC</th>
+            <th>Bearer Token</th>
+            <th>Status</th>
+            <th>Error</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in result_rows %}
+          <tr>
+            <td>{{ row.row }}</td>
+            <td>{{ row.tanggal }}</td>
+            <td>{{ row.waktu_proses }}</td>
+            <td>{{ row.username }}</td>
+            <td><code>{{ row.password }}</code></td>
+            <td><code>{{ row.kc_token }}</code></td>
+            <td>{{ row.kc_name }}</td>
+            <td class="token-cell"><code>{{ row.bearer_token }}</code></td>
+            <td>
+              {% if row.status == 'INSERTED' %}
+              <span class="badge badge-inserted">INSERTED</span>
+              {% elif row.status == 'UPDATED' %}
+              <span class="badge badge-updated">UPDATED</span>
+              {% else %}
+              <span class="badge badge-failed">FAILED</span>
+              {% endif %}
+            </td>
+            <td class="error-cell">{{ row.error }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
   </div>
 </body>
 

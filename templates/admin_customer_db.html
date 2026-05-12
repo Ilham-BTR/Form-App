@@ -472,6 +472,7 @@
           <button class="btn btn-warning btn-sm" id="reshuffleButton" type="button">Reshuffle Nomor Ready</button>
           <button class="btn btn-muted btn-sm" id="resetDistributionButton" type="button">Reset Distribusi</button>
           <button class="btn btn-danger btn-sm" id="deleteUnusedButton" type="button">Hapus Nomor Belum Terpakai</button>
+          <button class="btn btn-danger btn-sm" id="deleteUsedButton" type="button">Hapus Nomor Sudah Terpakai</button>
           <div class="rows-form">
             <label for="rowsSelect">Tampilkan</label>
             <select class="rows-select" id="rowsSelect">
@@ -530,6 +531,7 @@
       const reshuffleButton = document.getElementById('reshuffleButton');
       const resetDistributionButton = document.getElementById('resetDistributionButton');
       const deleteUnusedButton = document.getElementById('deleteUnusedButton');
+      const deleteUsedButton = document.getElementById('deleteUsedButton');
       const importIsActive = document.getElementById('import_is_active');
       const sortButtons = Array.from(document.querySelectorAll('.th-sort-btn'));
       let toastTimer = null;
@@ -788,6 +790,24 @@
         } finally {
           deleteUnusedButton.disabled = false;
           deleteUnusedButton.textContent = originalText;
+        }
+      });
+
+      deleteUsedButton.addEventListener('click', async function () {
+        if (!confirm('Hapus semua nomor yang sudah terpakai? Data submit/log tidak ikut dihapus. Lanjutkan?')) return;
+
+        deleteUsedButton.disabled = true;
+        const originalText = deleteUsedButton.textContent;
+        deleteUsedButton.textContent = 'Memproses...';
+        try {
+          await postForm('/admin/customers/delete-used', new FormData(), function () {
+            refreshData();
+          });
+        } catch (error) {
+          showMessage(error.message || 'Gagal menghapus nomor sudah terpakai.', true);
+        } finally {
+          deleteUsedButton.disabled = false;
+          deleteUsedButton.textContent = originalText;
         }
       });
 

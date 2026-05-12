@@ -2044,6 +2044,9 @@ def save_batch_bearer_export(rows):
     export_path = os.path.join(export_dir, f"{export_id}.xlsx")
     with open(export_path, "wb") as fh:
         fh.write(build_batch_bearer_export_excel(rows))
+    rows_path = os.path.join(export_dir, f"{export_id}.json")
+    with open(rows_path, "w", encoding="utf-8") as fh:
+        json.dump(rows, fh, ensure_ascii=False)
     return export_id
 
 
@@ -2053,6 +2056,19 @@ def get_batch_bearer_export_path(export_id):
         return ""
     export_dir = os.path.join(tempfile.gettempdir(), "kc_batch_bearer_exports")
     return os.path.join(export_dir, f"{safe_id}.xlsx")
+
+
+def get_batch_bearer_rows(export_id):
+    safe_id = re.sub(r"[^A-Za-z0-9_-]", "", str(export_id or ""))
+    if not safe_id:
+        return []
+    export_dir = os.path.join(tempfile.gettempdir(), "kc_batch_bearer_exports")
+    rows_path = os.path.join(export_dir, f"{safe_id}.json")
+    if not os.path.exists(rows_path):
+        return []
+    with open(rows_path, "r", encoding="utf-8") as fh:
+        rows = json.load(fh)
+    return rows if isinstance(rows, list) else []
 
 
 def get_local_master_data_options():
@@ -2442,6 +2458,21 @@ def delete_unused_customer_numbers():
         DELETE FROM customer_directory
         WHERE is_used = 0
           AND (reserved_by_token IS NULL OR reserved_by_token = '')
+        """
+    )
+    deleted_count = cur.rowcount
+    conn.commit()
+    conn.close()
+    return deleted_count
+
+
+def delete_used_customer_numbers():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        DELETE FROM customer_directory
+        WHERE is_used = 1
         """
     )
     deleted_count = cur.rowcount
@@ -5332,11 +5363,13 @@ def admin_import_tokens():
 @app.route("/admin/batch-bearer")
 @admin_required
 def admin_batch_bearer_page():
+    export_id = request.args.get("export_id", "")
     return render_template(
         "admin_batch_bearer.html",
         message=request.args.get("message", ""),
         error=request.args.get("error", ""),
-        export_id=request.args.get("export_id", ""),
+        export_id=export_id,
+        result_rows=get_batch_bearer_rows(export_id),
     )
 
 
@@ -5797,6 +5830,17 @@ def admin_customers_delete_unused():
         total = delete_unused_customer_numbers()
         stats = get_customer_stats()
         return jsonify({"ok": True, "message": f"Hapus database selesai. {total} nomor belum terpakai berhasil dihapus.", "stats": stats})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
+@app.route("/admin/customers/delete-used", methods=["POST"])
+@admin_required
+def admin_customers_delete_used():
+    try:
+        total = delete_used_customer_numbers()
+        stats = get_customer_stats()
+        return jsonify({"ok": True, "message": f"Hapus database selesai. {total} nomor sudah terpakai berhasil dihapus.", "stats": stats})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
 
