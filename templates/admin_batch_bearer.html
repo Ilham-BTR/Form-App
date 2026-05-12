@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="id">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Batch Ambil Bearer Token</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    .container {
+      width: min(980px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 24px 16px 40px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 28px;
+    }
+
+    .subtitle {
+      margin: 8px 0 0;
+      color: #64748b;
+      font-size: 14px;
+    }
+
+    .section {
+      background: white;
+      border-radius: 20px;
+      padding: 20px;
+      box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
+      margin-bottom: 18px;
+    }
+
+    .section h2 {
+      margin: 0 0 8px;
+      font-size: 20px;
+    }
+
+    .section-desc,
+    .hint {
+      color: #64748b;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .hint {
+      margin-top: 12px;
+    }
+
+    .batch-form {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      margin-top: 16px;
+    }
+
+    .input {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      padding: 12px;
+      font-size: 14px;
+      background: white;
+    }
+
+    .btn {
+      border: none;
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      color: white;
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+      text-align: center;
+    }
+
+    .btn-secondary {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+
+    .alert {
+      padding: 14px;
+      border-radius: 14px;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+
+    .alert-success {
+      background: #dcfce7;
+      color: #14532d;
+    }
+
+    .alert-error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .row-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    @media (max-width: 640px) {
+      .batch-form {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div>
+        <h1>Batch Ambil Bearer Token</h1>
+        <p class="subtitle">Upload Excel atau CSV username/password untuk login massal dan update bearer token.</p>
+      </div>
+      <a class="btn btn-secondary" href="/admin">Kembali ke Dashboard</a>
+    </div>
+
+    {% if message %}
+    <div class="alert alert-success">
+      {{ message }}
+      {% if export_id %}
+      <div class="row-actions" style="margin-top: 10px;">
+        <a class="btn" href="/admin/token/batch-bearer/export/{{ export_id }}">Export Hasil Batch Excel</a>
+        <a class="btn btn-secondary" href="/admin">Lihat Daftar KC Token</a>
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="alert alert-error">{{ error }}</div>
+    {% endif %}
+
+    <div class="section">
+      <h2>Upload File</h2>
+      <p class="section-desc">Format sederhana seperti script desktop: kolom A untuk username dan kolom B untuk password.</p>
+      <form class="batch-form" method="post" action="/admin/token/batch-bearer" enctype="multipart/form-data"
+        onsubmit="return confirm('Mulai ambil bearer token massal? Proses ini memakai 2captcha dan bisa berjalan cukup lama.');">
+        <input class="input" type="file" name="batch_bearer_file" accept=".xlsx,.csv" required>
+        <button class="btn" type="submit">Ambil Bearer Massal</button>
+      </form>
+      <div class="hint">
+        Header <b>username</b>/<b>password</b> boleh ada atau langsung data.
+        Jika username sudah ada di Daftar KC Token, bearer token dan password akan diupdate.
+        Jika belum ada, sistem membuat KC token baru otomatis dengan nama KC sesuai username.
+      </div>
+    </div>
+  </div>
+</body>
+
+</html>

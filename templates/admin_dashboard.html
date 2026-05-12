@@ -368,7 +368,7 @@
       <div class="actions">
         <a class="btn btn-sm" href="/admin/token/add">Tambah KC Token</a>
         <a class="btn btn-sm btn-secondary" href="#import-token">Import Detail Token</a>
-        <a class="btn btn-sm btn-secondary" href="#batch-bearer">Batch Ambil Bearer</a>
+        <a class="btn btn-sm btn-secondary" href="/admin/batch-bearer">Batch Ambil Bearer</a>
         <a class="btn btn-sm btn-secondary" href="/admin/master-data">Import BUMO/KC Area</a>
         <a class="btn btn-sm btn-secondary" href="/admin/token/export"
           onclick="return confirm('Export berisi bearer token asli. Lanjut download?');">Export Detail Token</a>
@@ -391,11 +391,6 @@
     {% if token_import_message %}
     <div class="alert alert-success">
       {{ token_import_message }}
-      {% if batch_bearer_export_id %}
-      <div style="margin-top: 10px;">
-        <a class="btn btn-sm" href="/admin/token/batch-bearer/export/{{ batch_bearer_export_id }}">Export Hasil Batch Excel</a>
-      </div>
-      {% endif %}
     </div>
     {% endif %}
 
@@ -417,21 +412,6 @@
         Header opsional: <b>token_area</b>, <b>kc_token</b>, <b>kc_username</b>, <b>kc_password</b>, dan <b>sudah_terpakai</b>.
         Jika KC token kosong, sistem membuat token otomatis dengan format KC-xxxxxxxxxxxxxxxx.
         Export detail token berisi bearer token, username, password, dan pemakaian hari ini.
-      </div>
-    </div>
-
-    <div class="section" id="batch-bearer">
-      <h2>Batch Excel Ambil Bearer Token</h2>
-      <p class="section-desc">Upload Excel atau CSV berisi username dan password KC untuk login massal dan menyimpan bearer token terbaru.</p>
-      <form class="import-form" method="post" action="/admin/token/batch-bearer" enctype="multipart/form-data"
-        onsubmit="return confirm('Mulai ambil bearer token massal? Proses ini memakai 2captcha dan bisa berjalan cukup lama.');">
-        <input class="input" type="file" name="batch_bearer_file" accept=".xlsx,.csv" required>
-        <button class="btn btn-sm" type="submit">Ambil Bearer Massal</button>
-      </form>
-      <div class="hint">
-        Format sederhana sama seperti script desktop: kolom A berisi <b>username</b>, kolom B berisi <b>password</b>.
-        Header username/password boleh ada atau langsung data. Jika username sudah ada di daftar KC token, bearer token akan diupdate.
-        Jika belum ada, sistem membuat KC token baru otomatis dengan nama KC sesuai username.
       </div>
     </div>
 

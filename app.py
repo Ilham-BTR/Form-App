@@ -4523,7 +4523,6 @@ def build_admin_dashboard_context(args):
         "recent_submissions": recent_submissions,
         "token_import_message": args.get("token_import_message", ""),
         "token_import_error": args.get("token_import_error", ""),
-        "batch_bearer_export_id": args.get("batch_bearer_export_id", ""),
         "selected_token_filter": selected_token_filter,
         "selected_token_status_filter": selected_token_status_filter,
         "selected_token_area_filter": selected_token_area_filter,
@@ -5330,6 +5329,17 @@ def admin_import_tokens():
         return redirect(url_for("admin_dashboard", token_import_error=str(e)))
 
 
+@app.route("/admin/batch-bearer")
+@admin_required
+def admin_batch_bearer_page():
+    return render_template(
+        "admin_batch_bearer.html",
+        message=request.args.get("message", ""),
+        error=request.args.get("error", ""),
+        export_id=request.args.get("export_id", ""),
+    )
+
+
 @app.route("/admin/token/batch-bearer", methods=["POST"])
 @admin_required
 def admin_batch_bearer_tokens():
@@ -5347,10 +5357,10 @@ def admin_batch_bearer_tokens():
         if result["sample_errors"]:
             message += f" | Contoh error: {'; '.join(result['sample_errors'])}"
         export_id = save_batch_bearer_export(result["rows"])
-        return redirect(url_for("admin_dashboard", token_import_message=message, batch_bearer_export_id=export_id))
+        return redirect(url_for("admin_batch_bearer_page", message=message, export_id=export_id))
     except Exception as e:
         logger.exception("admin_batch_bearer_tokens error")
-        return redirect(url_for("admin_dashboard", token_import_error=str(e)))
+        return redirect(url_for("admin_batch_bearer_page", error=str(e)))
 
 
 @app.route("/admin/token/batch-bearer/export/<export_id>")
@@ -5358,7 +5368,7 @@ def admin_batch_bearer_tokens():
 def admin_export_batch_bearer_tokens(export_id):
     export_path = get_batch_bearer_export_path(export_id)
     if not export_path or not os.path.exists(export_path):
-        return redirect(url_for("admin_dashboard", token_import_error="File export hasil batch tidak ditemukan atau sudah dibersihkan."))
+        return redirect(url_for("admin_batch_bearer_page", error="File export hasil batch tidak ditemukan atau sudah dibersihkan."))
 
     with open(export_path, "rb") as fh:
         excel_content = fh.read()
