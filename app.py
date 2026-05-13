@@ -470,11 +470,10 @@ def normalize_final_submit_state(result):
     if attempts:
         final_attempt = attempts[-1]
         final_status = final_attempt.get("status_code")
-        final_body = final_attempt.get("response_body")
 
         if final_status and 200 <= final_status < 300:
             return "SUCCESS"
-        if final_status == 400 and is_duplicate_response(final_body):
+        if final_status == 400:
             return "LIKELY_SUCCESS"
         if should_mark_phone_invalid(result):
             return "INVALID"
@@ -483,25 +482,13 @@ def normalize_final_submit_state(result):
     status_code = result.get("status_code")
     if status_code and 200 <= status_code < 300:
         return "SUCCESS"
-    if status_code == 400 and is_duplicate_response(result.get("response_body")):
-        return "LIKELY_SUCCESS"
     if status_code == 400:
-        return "INVALID"
+        return "LIKELY_SUCCESS"
     return "FAILED"
 
 
 def should_mark_phone_invalid(result):
-    attempts = result.get("attempts") or []
-
-    if attempts:
-        first_status = attempts[0].get("status_code")
-        first_body = attempts[0].get("response_body")
-
-        if first_status == 400 and not is_duplicate_response(first_body):
-            return True
-        return False
-
-    return result.get("status_code") == 400 and not is_duplicate_response(result.get("response_body"))
+    return False
 
 
 def is_all_attempts_unauthorized(result):
@@ -3861,8 +3848,6 @@ def mask_bearer_token(token):
 
 def build_submit_success_message(customer_name, phone_number, venue, final_state, quota_exhausted=False):
     headline = "Data berhasil di submit, silahkan cek di website camlet!"
-    if final_state == "LIKELY_SUCCESS":
-        headline = "Data kemungkinan sudah tersubmit, silahkan cek di website camlet!"
 
     lines = [
         headline,
