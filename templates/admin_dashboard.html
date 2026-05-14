@@ -117,12 +117,12 @@
     .bulk-toolbar {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
       flex-wrap: wrap;
-      padding: 10px 12px;
+      padding: 8px 10px;
       margin-bottom: 12px;
       border: 1px solid #e2e8f0;
-      border-radius: 14px;
+      border-radius: 10px;
       background: #f8fafc;
     }
 
@@ -238,6 +238,13 @@
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
+    }
+
+    .quick-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 8px 0 12px;
     }
 
     .token-table {
@@ -382,10 +389,21 @@
 
     .table-toolbar {
       display: grid;
-      grid-template-columns: minmax(180px, 1fr) minmax(140px, 170px) minmax(140px, 170px) minmax(150px, 180px) minmax(120px, 150px) minmax(110px, 140px) auto auto;
-      gap: 10px;
+      grid-template-columns: minmax(320px, 2fr) repeat(3, minmax(130px, 1fr)) repeat(2, minmax(135px, 1fr)) minmax(130px, 1fr) minmax(90px, .7fr);
+      gap: 8px;
       align-items: end;
-      margin: 14px 0;
+      margin: 10px 0 6px;
+    }
+
+    .table-toolbar .toolbar-wide {
+      grid-column: span 2;
+    }
+
+    .toolbar-actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(130px, 1fr));
+      gap: 8px;
+      align-items: end;
     }
 
     .toolbar-field label {
@@ -399,8 +417,8 @@
     .input {
       width: 100%;
       border: 1px solid #cbd5e1;
-      border-radius: 14px;
-      padding: 12px;
+      border-radius: 10px;
+      padding: 10px 12px;
       font-size: 14px;
       background: white;
       color: #0f172a;
@@ -458,6 +476,14 @@
       }
 
       .table-toolbar {
+        grid-template-columns: 1fr;
+      }
+
+      .table-toolbar .toolbar-wide {
+        grid-column: auto;
+      }
+
+      .toolbar-actions {
         grid-template-columns: 1fr;
       }
     }
@@ -632,12 +658,14 @@
           </select>
         </div>
         <input type="hidden" name="token_page" value="{{ selected_token_page }}">
-        <button class="btn btn-sm" type="submit">Terapkan</button>
-        <a class="btn btn-sm btn-secondary" id="tokenToolbarReset" href="/admin">Reset</a>
-        <a class="btn btn-sm btn-secondary" id="tokenFullExportLink" href="/admin/tokens/export-excel">Export Excel Lengkap</a>
+        <div class="toolbar-actions">
+          <button class="btn btn-sm" type="submit">Terapkan</button>
+          <a class="btn btn-sm btn-secondary" id="tokenToolbarReset" href="/admin">Reset</a>
+          <a class="btn btn-sm btn-secondary" id="tokenFullExportLink" href="/admin/tokens/export-excel">Export Excel Lengkap</a>
+        </div>
       </form>
       <div class="hint" style="margin-top: -4px; margin-bottom: 10px;">{{ token_filter_help_text }}</div>
-      <div class="row-actions" style="margin-bottom: 12px;">
+      <div class="quick-actions">
         <form class="inline" id="resetAllUsageTodayForm" method="post" action="/admin/token/reset-usage-today">
           <button class="btn btn-sm btn-warning" type="submit">Reset Semua Terpakai Hari Ini</button>
         </form>
