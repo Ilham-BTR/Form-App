@@ -852,6 +852,40 @@ def get_submission_response_detail(submission_id):
     return row
 
 
+def delete_submission_attempts_by_filter(status_filter="", kc_token_filter="", phone_filter="", date_from="", date_to=""):
+    status_filter = str(status_filter or "").strip()
+    kc_token_filter = str(kc_token_filter or "").strip()
+    phone_filter = str(phone_filter or "").strip()
+    date_from = normalize_submission_date_filter(date_from)
+    date_to = normalize_submission_date_filter(date_to)
+
+    query = ["DELETE FROM submission_attempts WHERE 1=1"]
+    params = []
+    if status_filter:
+        query.append("AND status_local = %s")
+        params.append(status_filter)
+    if kc_token_filter:
+        query.append("AND kc_token LIKE %s")
+        params.append(f"%{kc_token_filter}%")
+    if phone_filter:
+        query.append("AND phone_number LIKE %s")
+        params.append(f"%{phone_filter}%")
+    if date_from:
+        query.append("AND created_at >= %s")
+        params.append(f"{date_from} 00:00:00")
+    if date_to:
+        query.append("AND created_at <= %s")
+        params.append(f"{date_to} 23:59:59")
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("\n".join(query), params)
+    deleted_count = cur.rowcount
+    conn.commit()
+    conn.close()
+    return deleted_count
+
+
 def get_kc_purchase_counts(date_from="", date_to=""):
     date_from = normalize_submission_date_filter(date_from) or get_today_wib()
     date_to = normalize_submission_date_filter(date_to) or date_from
@@ -6345,6 +6379,24 @@ def admin_submission_response_detail(submission_id):
         "submission_id": row["submission_id"],
         "final_response_text": row["final_response_text"] or "",
     })
+
+
+@app.route("/admin/submissions/delete", methods=["POST"])
+@admin_required
+def admin_submissions_delete():
+    payload = request.get_json(silent=True) or {}
+    confirm_text = str(payload.get("confirm_text") or "").strip()
+    if confirm_text != "HAPUS":
+        return jsonify({"success": False, "error": "Ketik HAPUS untuk konfirmasi hapus riwayat submit."}), 400
+
+    deleted_count = delete_submission_attempts_by_filter(
+        status_filter=payload.get("status") or "",
+        kc_token_filter=payload.get("kc_token") or "",
+        phone_filter=payload.get("phone_number") or "",
+        date_from=payload.get("date_from") or "",
+        date_to=payload.get("date_to") or "",
+    )
+    return jsonify({"success": True, "deleted_count": deleted_count})
 
 
 @app.route("/admin/submissions/export")

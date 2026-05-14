@@ -240,6 +240,101 @@
       flex-wrap: wrap;
     }
 
+    .token-table {
+      min-width: 1760px;
+      table-layout: fixed;
+    }
+
+    .token-table th,
+    .token-table td {
+      padding: 7px 8px;
+      font-size: 12px;
+      line-height: 1.25;
+      vertical-align: middle;
+    }
+
+    .token-table th {
+      font-size: 12px;
+    }
+
+    .token-table code {
+      display: inline-block;
+      max-width: 100%;
+      font-size: 11px;
+      line-height: 1.2;
+      white-space: nowrap;
+      word-break: normal;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      vertical-align: bottom;
+    }
+
+    .token-table .badge {
+      padding: 5px 8px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .token-table .row-actions {
+      gap: 5px;
+      max-width: none;
+      flex-wrap: nowrap;
+    }
+
+    .token-table .btn-sm {
+      padding: 7px 9px;
+      border-radius: 10px;
+      font-size: 12px;
+      line-height: 1.1;
+      white-space: nowrap;
+    }
+
+    .token-table .select-cell {
+      width: 34px;
+      min-width: 34px;
+    }
+
+    .token-table .token-select,
+    .token-table #tokenSelectAll {
+      width: 16px;
+      height: 16px;
+    }
+
+    .token-table th:nth-child(1),
+    .token-table td:nth-child(1) { width: 38px; }
+    .token-table th:nth-child(2),
+    .token-table td:nth-child(2) { width: 210px; }
+    .token-table th:nth-child(3),
+    .token-table td:nth-child(3) { width: 90px; }
+    .token-table th:nth-child(4),
+    .token-table td:nth-child(4) { width: 110px; }
+    .token-table th:nth-child(5),
+    .token-table td:nth-child(5) { width: 90px; }
+    .token-table th:nth-child(6),
+    .token-table td:nth-child(6) { width: 170px; }
+    .token-table th:nth-child(7),
+    .token-table td:nth-child(7) { width: 90px; }
+    .token-table th:nth-child(8),
+    .token-table td:nth-child(8) { width: 80px; }
+    .token-table th:nth-child(9),
+    .token-table td:nth-child(9),
+    .token-table th:nth-child(10),
+    .token-table td:nth-child(10) { width: 90px; }
+    .token-table th:nth-child(11),
+    .token-table td:nth-child(11),
+    .token-table th:nth-child(13),
+    .token-table td:nth-child(13),
+    .token-table th:nth-child(14),
+    .token-table td:nth-child(14),
+    .token-table th:nth-child(15),
+    .token-table td:nth-child(15) { width: 64px; }
+    .token-table th:nth-child(12),
+    .token-table td:nth-child(12) { width: 76px; }
+    .token-table th:nth-child(16),
+    .token-table td:nth-child(16) { width: 86px; }
+    .token-table th:nth-child(17),
+    .token-table td:nth-child(17) { width: 330px; }
+
     form.inline {
       display: inline;
       margin: 0;
@@ -569,7 +664,7 @@
         <span class="hint" id="tokenPageHint">Halaman {{ selected_token_page }} dari {{ token_total_pages }}</span>
         <button class="btn btn-sm btn-secondary" type="button" id="tokenNextPage" {% if selected_token_page >= token_total_pages or selected_token_rows == 'all' %}disabled{% endif %}>Berikutnya</button>
       </div>
-      <table>
+      <table class="token-table">
         <thead>
           <tr>
             <th class="select-cell"><input id="tokenSelectAll" type="checkbox" aria-label="Pilih semua akun yang tampil"></th>
@@ -598,10 +693,10 @@
             <td>{{ row.kc_name }}</td>
             <td>{{ row.team }}</td>
             <td>{{ row.token_area }}</td>
-            <td><code>{{ row.kc_token }}</code></td>
+            <td><code title="{{ row.kc_token }}">{{ row.kc_token }}</code></td>
             <td>{{ row.kc_username }}</td>
-            <td><code>{{ row.kc_password }}</code></td>
-            <td><code>{{ row.bearer_token_masked }}</code></td>
+            <td><code title="{{ row.kc_password }}">{{ row.kc_password }}</code></td>
+            <td><code title="{{ row.bearer_token_masked }}">{{ row.bearer_token_masked }}</code></td>
             <td>{{ row.last_bearer_updated_at }}</td>
             <td>{{ row.last_submit_at }}</td>
             <td>{{ row.daily_limit }}</td>
@@ -618,11 +713,11 @@
             </td>
             <td>
               <div class="row-actions">
-                <button class="btn btn-sm btn-refresh" type="button" data-action="refresh" data-kc-token="{{ row.kc_token }}">Refresh Token</button>
+                <button class="btn btn-sm btn-refresh" type="button" data-action="refresh" data-kc-token="{{ row.kc_token }}">Refresh</button>
                 <a class="btn btn-sm btn-secondary" href="/admin/token/{{ row.kc_token }}/edit">Edit</a>
 
                 <form class="inline" method="post" action="/admin/token/{{ row.kc_token }}/reset-usage-today" data-action="reset-usage" data-kc-token="{{ row.kc_token }}">
-                  <button class="btn btn-sm btn-warning" type="submit">Reset Hari Ini</button>
+                  <button class="btn btn-sm btn-warning" type="submit">Reset</button>
                 </form>
 
                 <form class="inline" method="post" action="/admin/token/{{ row.kc_token }}/toggle" data-action="toggle" data-kc-token="{{ row.kc_token }}">
@@ -886,10 +981,10 @@
             <td>${escapeHtml(row.kc_name)}</td>
             <td>${escapeHtml(row.team ?? '-')}</td>
             <td>${escapeHtml(row.token_area)}</td>
-            <td><code>${escapeHtml(row.kc_token)}</code></td>
+            <td><code title="${escapeHtml(row.kc_token)}">${escapeHtml(row.kc_token)}</code></td>
             <td>${escapeHtml(row.kc_username)}</td>
-            <td><code>${escapeHtml(row.kc_password)}</code></td>
-            <td><code>${escapeHtml(row.bearer_token_masked)}</code></td>
+            <td><code title="${escapeHtml(row.kc_password)}">${escapeHtml(row.kc_password)}</code></td>
+            <td><code title="${escapeHtml(row.bearer_token_masked)}">${escapeHtml(row.bearer_token_masked)}</code></td>
             <td>${escapeHtml(row.last_bearer_updated_at ?? '-')}</td>
             <td>${escapeHtml(row.last_submit_at ?? '-')}</td>
             <td>${escapeHtml(row.daily_limit)}</td>
@@ -900,10 +995,10 @@
             <td>${statusBadge}</td>
             <td>
               <div class="row-actions">
-                <button class="btn btn-sm btn-refresh" type="button" data-action="refresh" data-kc-token="${escapeHtml(row.kc_token)}">Refresh Token</button>
+                <button class="btn btn-sm btn-refresh" type="button" data-action="refresh" data-kc-token="${escapeHtml(row.kc_token)}">Refresh</button>
                 <a class="btn btn-sm btn-secondary" href="${tokenUrl}/edit">Edit</a>
                 <form class="inline" method="post" action="${tokenUrl}/reset-usage-today" data-action="reset-usage" data-kc-token="${escapeHtml(row.kc_token)}">
-                  <button class="btn btn-sm btn-warning" type="submit">Reset Hari Ini</button>
+                  <button class="btn btn-sm btn-warning" type="submit">Reset</button>
                 </form>
                 <form class="inline" method="post" action="${tokenUrl}/toggle" data-action="toggle" data-kc-token="${escapeHtml(row.kc_token)}">
                   <button class="btn btn-sm btn-muted" type="submit">${toggleLabel}</button>

@@ -14,6 +14,7 @@
     .actions { display: flex; gap: 10px; flex-wrap: wrap; }
     .btn { border: none; background: linear-gradient(135deg, #0f172a, #1e293b); color: white; border-radius: 14px; padding: 12px 14px; font-size: 14px; font-weight: 600; text-decoration: none; display: inline-block; text-align: center; }
     .btn-secondary { background: #e2e8f0; color: #0f172a; }
+    .btn-danger { background: #dc2626; color: white; }
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 18px; }
     .card, .section { background: white; border-radius: 20px; padding: 18px; box-shadow: 0 4px 18px rgba(15, 23, 42, 0.06); }
     .card h3 { margin: 0 0 8px; font-size: 14px; color: #64748b; font-weight: normal; }
@@ -127,7 +128,8 @@
         <div>
           <label>&nbsp;</label>
           <button class="btn" type="submit">Filter</button>
-          <a class="btn btn-secondary" id="submissionExportLink" href="/admin/submissions/export">Export CSV</a>
+          <a class="btn btn-secondary" id="submissionExportLink" href="/admin/submissions/export">Arsip CSV</a>
+          <button class="btn btn-danger" id="submissionDeleteButton" type="button">Hapus Riwayat</button>
         </div>
       </form>
     </div>
@@ -220,6 +222,7 @@
     const submissionFiltersForm = document.getElementById('submissionFiltersForm');
     const submissionTableBody = document.getElementById('submissionTableBody');
     const submissionExportLink = document.getElementById('submissionExportLink');
+    const submissionDeleteButton = document.getElementById('submissionDeleteButton');
     const submitLogsMessage = document.getElementById('submitLogsMessage');
     let toastTimer = null;
 
@@ -262,14 +265,14 @@
       window.history.replaceState({}, '', query ? '/admin/submissions?' + query : '/admin/submissions');
     }
 
-    function showMessage(message) {
+    function showMessage(message, isError = true) {
       if (!message) {
         submitLogsMessage.classList.remove('show');
         submitLogsMessage.textContent = '';
         return;
       }
       if (toastTimer) clearTimeout(toastTimer);
-      submitLogsMessage.className = 'toast toast-error';
+      submitLogsMessage.className = 'toast ' + (isError ? 'toast-error' : 'toast-success');
       submitLogsMessage.textContent = message;
       submitLogsMessage.classList.add('show');
       toastTimer = setTimeout(() => submitLogsMessage.classList.remove('show'), 2800);
@@ -396,10 +399,53 @@
       }
     }
 
+    async function deleteFilteredSubmissions() {
+      const params = buildQuery();
+      const dateInfo = `${params.get('date_from') || 'awal'} s/d ${params.get('date_to') || 'akhir'}`;
+      const firstConfirm = confirm(
+        `Hapus riwayat submit sesuai filter aktif?\n\nPeriode: ${dateInfo}\nStatus: ${params.get('status') || 'Semua'}\nKC Token: ${params.get('kc_token') || 'Semua'}\nNomor HP: ${params.get('phone_number') || 'Semua'}\n\nSebaiknya klik Arsip CSV dulu kalau data masih diperlukan.`
+      );
+      if (!firstConfirm) return;
+
+      const confirmText = prompt('Ketik HAPUS untuk konfirmasi hapus riwayat submit terfilter.');
+      if (confirmText !== 'HAPUS') {
+        showMessage('Hapus riwayat dibatalkan. Konfirmasi tidak sesuai.');
+        return;
+      }
+
+      submissionDeleteButton.disabled = true;
+      const originalText = submissionDeleteButton.textContent;
+      submissionDeleteButton.textContent = 'Menghapus...';
+      try {
+        const payload = Object.fromEntries(params.entries());
+        payload.confirm_text = confirmText;
+        const res = await fetch('/admin/submissions/delete', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) throw new Error(data.error || 'Gagal menghapus riwayat submit.');
+        await refreshSubmissions();
+        showMessage(`${data.deleted_count || 0} data riwayat submit berhasil dihapus.`, false);
+      } catch (error) {
+        showMessage(error.message || 'Gagal menghapus riwayat submit.');
+      } finally {
+        submissionDeleteButton.disabled = false;
+        submissionDeleteButton.textContent = originalText;
+      }
+    }
+
     submissionFiltersForm.addEventListener('submit', (event) => {
       event.preventDefault();
       refreshSubmissions();
     });
+
+    submissionDeleteButton.addEventListener('click', deleteFilteredSubmissions);
 
     submissionTableBody.addEventListener('click', (event) => {
       const button = event.target.closest('button[data-response-id]');
