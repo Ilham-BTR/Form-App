@@ -290,9 +290,52 @@ def init_db():
             final_response_text TEXT,
             attempts_json TEXT NOT NULL DEFAULT '[]',
             request_summary_json TEXT NOT NULL DEFAULT '{}',
+            customer_name TEXT NOT NULL DEFAULT '',
+            has_purchased TEXT NOT NULL DEFAULT '',
+            lighter TEXT NOT NULL DEFAULT '',
+            lighter_purchased INTEGER NOT NULL DEFAULT 0,
+            kc_area TEXT NOT NULL DEFAULT '',
+            kc_area_label TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
+    """)
+
+    for column_name, column_type in {
+        "customer_name": "TEXT NOT NULL DEFAULT ''",
+        "has_purchased": "TEXT NOT NULL DEFAULT ''",
+        "lighter": "TEXT NOT NULL DEFAULT ''",
+        "lighter_purchased": "INTEGER NOT NULL DEFAULT 0",
+        "kc_area": "TEXT NOT NULL DEFAULT ''",
+        "kc_area_label": "TEXT NOT NULL DEFAULT ''",
+    }.items():
+        cur.execute(f"""
+            ALTER TABLE submission_attempts
+            ADD COLUMN IF NOT EXISTS {column_name} {column_type}
+        """)
+
+    cur.execute("""
+        UPDATE submission_attempts
+        SET customer_name = COALESCE(NULLIF(customer_name, ''), COALESCE(request_summary_json::jsonb ->> 'customer_name', '')),
+            has_purchased = COALESCE(NULLIF(has_purchased, ''), COALESCE(request_summary_json::jsonb ->> 'has_purchased', '')),
+            lighter = COALESCE(NULLIF(lighter, ''), COALESCE(request_summary_json::jsonb ->> 'lighter', '')),
+            kc_area = COALESCE(NULLIF(kc_area, ''), COALESCE(request_summary_json::jsonb ->> 'kc_area', '')),
+            kc_area_label = COALESCE(NULLIF(kc_area_label, ''), COALESCE(request_summary_json::jsonb ->> 'kc_area_label', '')),
+            lighter_purchased = CASE
+                WHEN lighter_purchased = 1 THEN 1
+                WHEN COALESCE(request_summary_json::jsonb ->> 'has_purchased', '') = 'true'
+                 AND COALESCE(request_summary_json::jsonb ->> 'lighter', '') = 'Ya'
+                THEN 1 ELSE 0
+            END
+        WHERE request_summary_json IS NOT NULL
+          AND request_summary_json != ''
+          AND request_summary_json != '{}'
+          AND (
+            customer_name = ''
+            OR has_purchased = ''
+            OR kc_area = ''
+            OR kc_area_label = ''
+          )
     """)
 
     cur.execute("""
@@ -332,6 +375,8 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_attempts_phone ON submission_attempts (phone_number, created_at DESC)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_attempts_status ON submission_attempts (status_local, created_at DESC)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_attempts_kc ON submission_attempts (kc_token, created_at DESC)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_attempts_created_at ON submission_attempts (created_at DESC)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_attempts_purchase_counts ON submission_attempts (status_local, created_at DESC, kc_token)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_bumo_master_active_name ON bumo_master (is_active, name)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_kc_area_master_active_name ON kc_area_master (is_active, area_name)")
 
@@ -530,18 +575,76 @@ def summarize_submit_result(result):
     )
 
 
+def request_summary_has_lighter_purchase(request_summary):
+    summary = request_summary or {}
+    if str(summary.get("has_purchased") or "").strip().lower() != "true":
+        return 0
+    if str(summary.get("lighter") or "").strip() == "Ya":
+        return 1
+
+    product_transactions = summary.get("product_transactions")
+    if isinstance(product_transactions, str):
+        try:
+            product_transactions = json.loads(product_transactions or "[]")
+        except Exception:
+            product_transactions = []
+    if not isinstance(product_transactions, list):
+        return 0
+
+    for item in product_transactions:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("product_name") or "").strip() != "Lighter":
+            continue
+        try:
+            quantity = int(item.get("quantity") or 0)
+        except (TypeError, ValueError):
+            quantity = 0
+        if quantity > 0:
+            return 1
+    return 0
+
+
+def extract_submission_summary_columns(request_summary):
+    summary = request_summary or {}
+    return {
+        "customer_name": str(summary.get("customer_name") or "").strip(),
+        "has_purchased": str(summary.get("has_purchased") or "").strip().lower(),
+        "lighter": str(summary.get("lighter") or "").strip(),
+        "lighter_purchased": request_summary_has_lighter_purchase(summary),
+        "kc_area": str(summary.get("kc_area") or "").strip(),
+        "kc_area_label": str(summary.get("kc_area_label") or "").strip(),
+    }
+
+
 def create_submission_attempt(submission_id, phone_number, kc_token, request_summary):
     now_str = get_now_db_string()
+    summary_columns = extract_submission_summary_columns(request_summary)
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO submission_attempts (
             submission_id, phone_number, kc_token, status_local, final_status_code,
-            final_response_text, attempts_json, request_summary_json, created_at, updated_at
-        ) VALUES (%s, %s, %s, 'PENDING', NULL, NULL, '[]', %s, %s, %s)
+            final_response_text, attempts_json, request_summary_json, customer_name,
+            has_purchased, lighter, lighter_purchased, kc_area, kc_area_label,
+            created_at, updated_at
+        ) VALUES (%s, %s, %s, 'PENDING', NULL, NULL, '[]', %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """,
-        (submission_id, phone_number, kc_token, safe_json_dumps(request_summary, ensure_ascii=False), now_str, now_str),
+        (
+            submission_id,
+            phone_number,
+            kc_token,
+            safe_json_dumps(request_summary, ensure_ascii=False),
+            summary_columns["customer_name"],
+            summary_columns["has_purchased"],
+            summary_columns["lighter"],
+            summary_columns["lighter_purchased"],
+            summary_columns["kc_area"],
+            summary_columns["kc_area_label"],
+            now_str,
+            now_str,
+        ),
     )
     conn.commit()
     conn.close()
@@ -549,6 +652,7 @@ def create_submission_attempt(submission_id, phone_number, kc_token, request_sum
 
 def update_submission_request_summary(submission_id, phone_number, kc_token, request_summary):
     now_str = get_now_db_string()
+    summary_columns = extract_submission_summary_columns(request_summary)
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -557,10 +661,28 @@ def update_submission_request_summary(submission_id, phone_number, kc_token, req
         SET phone_number = %s,
             kc_token = %s,
             request_summary_json = %s,
+            customer_name = %s,
+            has_purchased = %s,
+            lighter = %s,
+            lighter_purchased = %s,
+            kc_area = %s,
+            kc_area_label = %s,
             updated_at = %s
         WHERE submission_id = %s
         """,
-        (phone_number, kc_token, safe_json_dumps(request_summary, ensure_ascii=False), now_str, submission_id),
+        (
+            phone_number,
+            kc_token,
+            safe_json_dumps(request_summary, ensure_ascii=False),
+            summary_columns["customer_name"],
+            summary_columns["has_purchased"],
+            summary_columns["lighter"],
+            summary_columns["lighter_purchased"],
+            summary_columns["kc_area"],
+            summary_columns["kc_area_label"],
+            now_str,
+            submission_id,
+        ),
     )
     conn.commit()
     conn.close()
@@ -587,12 +709,26 @@ def update_submission_attempt(submission_id, status_local, final_status_code, fi
     conn.close()
 
 
-def get_recent_submission_attempts(limit=100, status_filter="", kc_token_filter="", phone_filter="", date_from="", date_to=""):
+def summarize_response_text(response_text, max_length=220):
+    text = str(response_text or "").strip()
+    if not text:
+        return "-"
+    if len(text) <= max_length:
+        return text
+    return text[:max_length].rstrip() + "..."
+
+
+def get_recent_submission_attempts(limit=100, status_filter="", kc_token_filter="", phone_filter="", date_from="", date_to="", include_response_text=True):
     limit = normalize_submission_log_limit(limit, default=100)
     date_from = normalize_submission_date_filter(date_from)
     date_to = normalize_submission_date_filter(date_to)
+    response_select = (
+        "s.final_response_text"
+        if include_response_text
+        else "LEFT(COALESCE(s.final_response_text, ''), 240) AS final_response_text, LENGTH(COALESCE(s.final_response_text, '')) AS final_response_length"
+    )
     query = [
-        "SELECT s.submission_id, s.phone_number, s.kc_token, COALESCE(v.kc_name, '') AS kc_name, s.status_local, s.final_status_code, s.final_response_text, s.attempts_json, s.request_summary_json, s.created_at, s.updated_at",
+        f"SELECT s.submission_id, s.phone_number, s.kc_token, COALESCE(v.kc_name, '') AS kc_name, s.status_local, s.final_status_code, {response_select}, s.attempts_json, s.request_summary_json, s.created_at, s.updated_at",
         "FROM submission_attempts s",
         "LEFT JOIN valid_kc_tokens v ON s.kc_token = v.kc_token",
         "WHERE 1=1",
@@ -636,6 +772,8 @@ def get_recent_submission_attempts(limit=100, status_filter="", kc_token_filter=
             request_summary = json.loads(row["request_summary_json"] or "{}")
         except Exception:
             request_summary = {}
+        response_text = row["final_response_text"] or ""
+        response_length = int(row.get("final_response_length") or len(response_text) or 0)
         results.append({
             "submission_id": row["submission_id"],
             "phone_number": row["phone_number"],
@@ -643,7 +781,10 @@ def get_recent_submission_attempts(limit=100, status_filter="", kc_token_filter=
             "kc_name": row["kc_name"] or request_summary.get("kc_name") or "-",
             "status_local": row["status_local"],
             "final_status_code": row["final_status_code"],
-            "final_response_text": row["final_response_text"],
+            "final_response_text": response_text if include_response_text else "",
+            "final_response_preview": summarize_response_text(response_text),
+            "final_response_length": response_length,
+            "has_full_response": response_length > 240 if not include_response_text else bool(response_text),
             "attempts": attempts,
             "attempt_count": len(attempts),
             "attempt_summary": " | ".join([f"{a.get('attempt_no', i+1)}x:{a.get('status_code')}" for i, a in enumerate(attempts)]) if attempts else "-",
@@ -654,18 +795,61 @@ def get_recent_submission_attempts(limit=100, status_filter="", kc_token_filter=
     return results
 
 
-def get_submission_status_counts():
+def get_submission_status_counts(kc_token_filter="", phone_filter="", date_from="", date_to=""):
+    kc_token_filter = str(kc_token_filter or "").strip()
+    phone_filter = str(phone_filter or "").strip()
+    date_from = normalize_submission_date_filter(date_from)
+    date_to = normalize_submission_date_filter(date_to)
+    query = [
+        "SELECT status_local, COUNT(*) AS total",
+        "FROM submission_attempts",
+        "WHERE 1=1",
+    ]
+    params = []
+
+    if kc_token_filter:
+        query.append("AND kc_token LIKE %s")
+        params.append(f"%{kc_token_filter}%")
+    if phone_filter:
+        query.append("AND phone_number LIKE %s")
+        params.append(f"%{phone_filter}%")
+    if date_from:
+        query.append("AND created_at >= %s")
+        params.append(f"{date_from} 00:00:00")
+    if date_to:
+        query.append("AND created_at <= %s")
+        params.append(f"{date_to} 23:59:59")
+    query.append("GROUP BY status_local")
+
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute(
-        "SELECT status_local, COUNT(*) AS total FROM submission_attempts GROUP BY status_local"
-    )
+    cur.execute("\n".join(query), params)
     rows = cur.fetchall()
     conn.close()
     counts = {"SUCCESS": 0, "LIKELY_SUCCESS": 0, "INVALID": 0, "FAILED": 0, "PENDING": 0}
     for row in rows:
         counts[row["status_local"]] = row["total"]
     return counts
+
+
+def get_submission_response_detail(submission_id):
+    current_id = str(submission_id or "").strip()
+    if not current_id:
+        return None
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT submission_id, final_response_text
+        FROM submission_attempts
+        WHERE submission_id = %s
+        LIMIT 1
+        """,
+        (current_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row
 
 
 def get_kc_purchase_counts(date_from="", date_to=""):
@@ -678,36 +862,10 @@ def get_kc_purchase_counts(date_from="", date_to=""):
         """
         SELECT
             s.kc_token,
-            SUM(CASE WHEN COALESCE(s.request_summary_json::jsonb ->> 'has_purchased', '') = 'true' THEN 1 ELSE 0 END) AS purchase_yes,
-            SUM(CASE WHEN COALESCE(s.request_summary_json::jsonb ->> 'has_purchased', '') = 'false' THEN 1 ELSE 0 END) AS purchase_no,
-            SUM(
-                CASE
-                    WHEN COALESCE(s.request_summary_json::jsonb ->> 'has_purchased', '') = 'true'
-                     AND (
-                       COALESCE(s.request_summary_json::jsonb ->> 'lighter', '') = 'Ya'
-                       OR EXISTS (
-                        SELECT 1
-                        FROM jsonb_array_elements(COALESCE(NULLIF(s.request_summary_json::jsonb ->> 'product_transactions', '')::jsonb, '[]'::jsonb)) AS item
-                        WHERE item ->> 'product_name' = 'Lighter'
-                          AND COALESCE((item ->> 'quantity')::int, 0) > 0
-                       )
-                    )
-                    THEN 1 ELSE 0
-                END
-            ) AS lighter_yes,
-            SUM(
-                CASE
-                    WHEN COALESCE(s.request_summary_json::jsonb ->> 'has_purchased', '') = 'true'
-                     AND COALESCE(s.request_summary_json::jsonb ->> 'lighter', '') != 'Ya'
-                     AND NOT EXISTS (
-                        SELECT 1
-                        FROM jsonb_array_elements(COALESCE(NULLIF(s.request_summary_json::jsonb ->> 'product_transactions', '')::jsonb, '[]'::jsonb)) AS item
-                        WHERE item ->> 'product_name' = 'Lighter'
-                          AND COALESCE((item ->> 'quantity')::int, 0) > 0
-                    )
-                    THEN 1 ELSE 0
-                END
-            ) AS lighter_no
+            SUM(CASE WHEN s.has_purchased = 'true' THEN 1 ELSE 0 END) AS purchase_yes,
+            SUM(CASE WHEN s.has_purchased = 'false' THEN 1 ELSE 0 END) AS purchase_no,
+            SUM(CASE WHEN s.has_purchased = 'true' AND s.lighter_purchased = 1 THEN 1 ELSE 0 END) AS lighter_yes,
+            SUM(CASE WHEN s.has_purchased = 'true' AND s.lighter_purchased != 1 THEN 1 ELSE 0 END) AS lighter_no
         FROM submission_attempts s
         WHERE s.created_at >= %s
           AND s.created_at <= %s
@@ -2087,6 +2245,70 @@ def get_local_master_data_options():
     }
 
 
+def get_local_master_data_summary():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT name
+        FROM bumo_master
+        WHERE is_active = 1
+        ORDER BY name ASC
+        """
+    )
+    bumo_rows = cur.fetchall()
+    cur.execute("SELECT COUNT(*) AS total FROM kc_area_master WHERE is_active = 1")
+    area_count = cur.fetchone()["total"]
+    conn.close()
+    return {
+        "bumo_options": [{"label": row["name"], "value": row["name"]} for row in bumo_rows],
+        "kc_area_count": int(area_count or 0),
+    }
+
+
+def search_local_kc_area_options(query="", selected_area_id="", limit=60):
+    keyword = str(query or "").strip()
+    selected_id = str(selected_area_id or "").strip()
+    safe_limit = max(1, min(int(limit or 60), 100))
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    rows = []
+    if keyword:
+        cur.execute(
+            """
+            SELECT area_id, area_name
+            FROM kc_area_master
+            WHERE is_active = 1
+              AND area_name ILIKE %s
+            ORDER BY
+              CASE WHEN area_name ILIKE %s THEN 0 ELSE 1 END,
+              area_name ASC
+            LIMIT %s
+            """,
+            (f"%{keyword}%", f"{keyword}%", safe_limit),
+        )
+        rows = cur.fetchall()
+
+    if selected_id and not any(str(row["area_id"]) == selected_id for row in rows):
+        cur.execute(
+            """
+            SELECT area_id, area_name
+            FROM kc_area_master
+            WHERE is_active = 1
+              AND area_id = %s
+            LIMIT 1
+            """,
+            (selected_id,),
+        )
+        selected_row = cur.fetchone()
+        if selected_row:
+            rows.insert(0, selected_row)
+
+    conn.close()
+    return [{"label": row["area_name"], "value": str(row["area_id"])} for row in rows[:safe_limit]]
+
+
 def get_master_data_counts():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -2550,6 +2772,28 @@ def token_rows_value_to_limit(rows_value):
     return None if rows_value == "all" else int(rows_value)
 
 
+def normalize_token_page_param(raw_value):
+    try:
+        page = int(str(raw_value or "1").strip())
+    except (TypeError, ValueError):
+        page = 1
+    return max(1, page)
+
+
+def paginate_token_rows(rows, rows_value="10", page=1):
+    rows_value = normalize_token_rows_param(rows_value)
+    total_count = len(rows)
+    limit = token_rows_value_to_limit(rows_value)
+    if limit is None:
+        return list(rows), 1, 1
+
+    total_pages = max(1, (total_count + limit - 1) // limit)
+    current_page = min(normalize_token_page_param(page), total_pages)
+    start = (current_page - 1) * limit
+    end = start + limit
+    return list(rows)[start:end], current_page, total_pages
+
+
 def normalize_token_sort(sort_by, sort_dir):
     allowed_sort_by = {
         "kc_name",
@@ -2931,7 +3175,7 @@ def get_today_kc_usage_summary(date_from=None, date_to=None):
     return rows, display
 
 
-def get_all_kc_usage_data(date_from="", date_to=""):
+def get_all_kc_usage_data(date_from="", date_to="", active_only=False):
     conn = get_db_connection()
     cur = conn.cursor()
     query = ["""
@@ -2947,6 +3191,8 @@ def get_all_kc_usage_data(date_from="", date_to=""):
     if date_to:
         query.append("AND u.usage_date <= %s")
         params.append(date_to)
+    if active_only:
+        query.append("AND u.total_submit > 0")
     query.append("ORDER BY u.usage_date DESC, v.kc_name ASC")
     cur.execute(" ".join(query), params)
     rows = cur.fetchall()
@@ -2954,8 +3200,8 @@ def get_all_kc_usage_data(date_from="", date_to=""):
     return rows
 
 
-def build_kc_usage_export_excel(date_from="", date_to=""):
-    rows = get_all_kc_usage_data(date_from=date_from, date_to=date_to)
+def build_kc_usage_export_excel(date_from="", date_to="", active_only=False):
+    rows = get_all_kc_usage_data(date_from=date_from, date_to=date_to, active_only=active_only)
     wb = Workbook()
     ws = wb.active
     ws.title = "Usage KC Token"
@@ -4098,11 +4344,11 @@ def api_master_data():
             clear_user_session()
             return jsonify({"error": "Kuota KC token hari ini sudah habis dan token otomatis dinonaktifkan."}), 401
 
-        local_master_data = get_local_master_data_options()
-        if local_master_data["bumo_options"] and local_master_data["kc_area_options"]:
+        local_master_data = get_local_master_data_summary()
+        if local_master_data["bumo_options"] and local_master_data["kc_area_count"] > 0:
             return jsonify({
                 "bumo_options": local_master_data["bumo_options"],
-                "kc_area_options": local_master_data["kc_area_options"],
+                "kc_area_count": local_master_data["kc_area_count"],
                 "source": "database",
             })
 
@@ -4119,6 +4365,35 @@ def api_master_data():
         return jsonify({"error": str(e)}), status_code or 500
     except Exception as e:
         logger.exception("api_master_data error")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/kc-areas/search", methods=["GET"])
+def api_search_kc_areas():
+    try:
+        if "kc_token" not in session:
+            return jsonify({"error": "Session token tidak ditemukan. Silakan login ulang."}), 401
+
+        if clear_expired_user_session():
+            return jsonify({"error": "Token sudah expired karena hari sudah berganti. Silakan login ulang."}), 401
+
+        kc_token = session.get("kc_token", "").strip()
+        kc_detail = get_kc_token_detail(kc_token)
+        if not kc_detail or kc_detail["is_active"] != 1:
+            clear_user_session()
+            return jsonify({"error": "KC token tidak valid atau sudah nonaktif."}), 401
+
+        query = (request.args.get("q") or "").strip()
+        selected_id = (request.args.get("selected") or "").strip()
+        if len(query) < 2 and not selected_id:
+            return jsonify({"kc_area_options": [], "source": "database"})
+
+        return jsonify({
+            "kc_area_options": search_local_kc_area_options(query=query, selected_area_id=selected_id, limit=60),
+            "source": "database",
+        })
+    except Exception as e:
+        logger.exception("api_search_kc_areas error")
         return jsonify({"error": str(e)}), 500
 
 
@@ -4621,11 +4896,14 @@ def build_admin_dashboard_context(args):
 
     selected_usage_date_from = parse_date_param("usage_date_from")
     selected_usage_date_to = parse_date_param("usage_date_to")
+    selected_usage_activity_filter = (args.get("usage_activity_filter") or "all").strip().lower()
+    if selected_usage_activity_filter not in {"all", "active"}:
+        selected_usage_activity_filter = "all"
     usage_rows, usage_date = get_today_kc_usage_summary(
         date_from=selected_usage_date_from or None,
         date_to=selected_usage_date_to or None,
     )
-    recent_submissions = get_recent_submission_attempts(limit=10)
+    recent_submissions = get_recent_submission_attempts(limit=10, include_response_text=False)
 
     selected_token_filter = (args.get("token_filter") or "").strip()
     selected_token_status_filter = (args.get("token_status_filter") or "").strip().lower()
@@ -4636,6 +4914,7 @@ def build_admin_dashboard_context(args):
     if selected_token_status_filter not in ("", "aktif", "nonaktif"):
         selected_token_status_filter = ""
     selected_token_rows = normalize_token_rows_param(args.get("token_rows", "10"))
+    selected_token_page = normalize_token_page_param(args.get("token_page", "1"))
     selected_token_sort_by, selected_token_sort_dir = normalize_token_sort(
         args.get("token_sort_by", "kc_name"),
         args.get("token_sort_dir", "asc"),
@@ -4674,7 +4953,7 @@ def build_admin_dashboard_context(args):
             "is_active": row["is_active"],
         })
 
-    masked_token_rows, token_filtered_count = filter_sort_limit_token_rows(
+    filtered_token_rows, token_filtered_count = filter_sort_limit_token_rows(
         rows=masked_token_rows,
         filter_text=selected_token_filter,
         status_filter=selected_token_status_filter,
@@ -4684,11 +4963,18 @@ def build_admin_dashboard_context(args):
         last_submit_date_to=selected_token_last_submit_date_to,
         sort_by=selected_token_sort_by,
         sort_dir=selected_token_sort_dir,
+        rows_value="all",
+    )
+    masked_token_rows, selected_token_page, token_total_pages = paginate_token_rows(
+        filtered_token_rows,
         rows_value=selected_token_rows,
+        page=selected_token_page,
     )
 
     masked_usage_rows = []
     for row in usage_rows:
+        if selected_usage_activity_filter == "active" and int(row["total_submit"] or 0) <= 0:
+            continue
         masked_usage_rows.append({
             "kc_token": row["kc_token"],
             "kc_name": row["kc_name"],
@@ -4721,14 +5007,17 @@ def build_admin_dashboard_context(args):
         "selected_token_last_submit_date_from": selected_token_last_submit_date_from,
         "selected_token_last_submit_date_to": selected_token_last_submit_date_to,
         "selected_token_rows": selected_token_rows,
+        "selected_token_page": selected_token_page,
         "selected_token_sort_by": selected_token_sort_by,
         "selected_token_sort_dir": selected_token_sort_dir,
         "token_filtered_count": token_filtered_count,
         "token_visible_count": len(masked_token_rows),
+        "token_total_pages": token_total_pages,
         "token_area_options": token_area_options,
         "token_team_options": token_team_options,
         "selected_usage_date_from": selected_usage_date_from,
         "selected_usage_date_to": selected_usage_date_to,
+        "selected_usage_activity_filter": selected_usage_activity_filter,
         "token_filter_help_text": get_token_filter_help_text(),
     }
 
@@ -4845,6 +5134,7 @@ def build_team_leader_dashboard_context(args, allowed_kc_tokens=None, viewer_nam
         limit=60,
         date_from=selected_date_from,
         date_to=selected_date_to,
+        include_response_text=False,
     )
     visible_token_set = {row["kc_token"] for row in filtered_rows_all}
     filtered_recent_submissions = []
@@ -4909,8 +5199,8 @@ def build_admin_submissions_context(args):
     selected_status = (args.get("status") or "").strip()
     selected_kc_token = (args.get("kc_token") or "").strip()
     selected_phone = (args.get("phone_number") or "").strip()
-    selected_date_from = normalize_submission_date_filter(args.get("date_from"))
-    selected_date_to = normalize_submission_date_filter(args.get("date_to"))
+    selected_date_from = normalize_submission_date_filter(args.get("date_from")) or get_today_wib()
+    selected_date_to = normalize_submission_date_filter(args.get("date_to")) or selected_date_from
     selected_limit_raw = (args.get("limit") or "100").strip()
     requested_limit = normalize_submission_log_limit(selected_limit_raw, default=100)
     display_limit = 50 if requested_limit is None else min(requested_limit, 50)
@@ -4922,8 +5212,14 @@ def build_admin_submissions_context(args):
         phone_filter=selected_phone,
         date_from=selected_date_from,
         date_to=selected_date_to,
+        include_response_text=False,
     )
-    counts = get_submission_status_counts()
+    counts = get_submission_status_counts(
+        kc_token_filter=selected_kc_token,
+        phone_filter=selected_phone,
+        date_from=selected_date_from,
+        date_to=selected_date_to,
+    )
 
     direct_success_count = 0
     retried_success_count = 0
@@ -5693,7 +5989,8 @@ def admin_export_selected_tokens():
 def admin_export_usage():
     date_from = (request.args.get("date_from") or "").strip()
     date_to = (request.args.get("date_to") or "").strip()
-    excel_content = build_kc_usage_export_excel(date_from=date_from, date_to=date_to)
+    active_only = (request.args.get("active_only") or "").strip().lower() in {"1", "true", "yes", "active"}
+    excel_content = build_kc_usage_export_excel(date_from=date_from, date_to=date_to, active_only=active_only)
     today = get_today_wib()
     filename = f"usage-kc-token-{today}.xlsx"
     return Response(
@@ -6036,6 +6333,18 @@ def admin_submissions():
 @admin_required
 def admin_submissions_data():
     return jsonify(build_admin_submissions_context(request.args))
+
+
+@app.route("/admin/submissions/<submission_id>/response")
+@admin_required
+def admin_submission_response_detail(submission_id):
+    row = get_submission_response_detail(submission_id)
+    if not row:
+        return jsonify({"error": "Data submit tidak ditemukan."}), 404
+    return jsonify({
+        "submission_id": row["submission_id"],
+        "final_response_text": row["final_response_text"] or "",
+    })
 
 
 @app.route("/admin/submissions/export")

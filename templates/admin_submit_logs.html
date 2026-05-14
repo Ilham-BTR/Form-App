@@ -39,6 +39,8 @@
     code { word-break: break-word; font-size: 12px; }
     .response-cell { width: 360px; max-width: 360px; }
     .response-code { display: block; max-width: 360px; max-height: 170px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .response-actions { margin-top: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .response-detail-btn { border: none; border-radius: 10px; padding: 7px 10px; background: #e2e8f0; color: #0f172a; font-size: 12px; font-weight: bold; cursor: pointer; }
     .muted { color: #64748b; }
     .message { display: none; }
     .is-loading { opacity: 0.65; pointer-events: none; }
@@ -196,7 +198,15 @@
                 <div>Lighter: {{ row.request_summary.get('lighter', '-') }}</div>
                 {% endif %}
               </td>
-              <td class="response-cell"><code class="response-code">{{ row.final_response_text or '-' }}</code></td>
+              <td class="response-cell">
+                <code class="response-code" id="response-{{ row.submission_id }}">{{ row.final_response_preview or '-' }}</code>
+                {% if row.has_full_response %}
+                <div class="response-actions">
+                  <button class="response-detail-btn" type="button" data-response-id="{{ row.submission_id }}">Lihat Detail</button>
+                  <span class="muted">{{ row.final_response_length }} karakter</span>
+                </div>
+                {% endif %}
+              </td>
             </tr>
             {% else %}
             <tr><td colspan="10" class="muted">Belum ada data submit.</td></tr>
@@ -283,6 +293,19 @@
       document.getElementById('retryRate').textContent = `${data.retry_stats?.retry_rate ?? 0}%`;
     }
 
+    function responseCell(row) {
+      const responseId = escapeHtml(row.submission_id || '');
+      const preview = escapeHtml(row.final_response_preview || '-');
+      const responseLength = Number(row.final_response_length || 0);
+      const detailButton = row.has_full_response
+        ? `<div class="response-actions">
+            <button class="response-detail-btn" type="button" data-response-id="${responseId}">Lihat Detail</button>
+            <span class="muted">${responseLength} karakter</span>
+          </div>`
+        : '';
+      return `<code class="response-code" id="response-${responseId}">${preview}</code>${detailButton}`;
+    }
+
     function renderRows(rows) {
       if (!rows || rows.length === 0) {
         submissionTableBody.innerHTML = '<tr><td colspan="10" class="muted">Belum ada data submit.</td></tr>';
@@ -317,10 +340,36 @@
               ${summary.non_purchase_reasons ? `<div>Alasan: ${escapeHtml(summary.non_purchase_reasons)}</div>` : ''}
               ${summary.lighter ? `<div>Lighter: ${escapeHtml(summary.lighter)}</div>` : ''}
             </td>
-            <td class="response-cell"><code class="response-code">${escapeHtml(row.final_response_text || '-')}</code></td>
+            <td class="response-cell">${responseCell(row)}</td>
           </tr>
         `;
       }).join('');
+    }
+
+    async function loadResponseDetail(button) {
+      const submissionId = button.dataset.responseId || '';
+      if (!submissionId) return;
+
+      const target = document.getElementById('response-' + submissionId);
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = 'Memuat...';
+      try {
+        const res = await fetch('/admin/submissions/' + encodeURIComponent(submissionId) + '/response', {
+          headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Gagal memuat response lengkap.');
+        if (target) target.textContent = data.final_response_text || '-';
+        button.remove();
+      } catch (err) {
+        showMessage(err.message || 'Gagal memuat response lengkap.');
+        button.disabled = false;
+        button.textContent = originalText;
+      }
     }
 
     async function refreshSubmissions() {
@@ -350,6 +399,11 @@
     submissionFiltersForm.addEventListener('submit', (event) => {
       event.preventDefault();
       refreshSubmissions();
+    });
+
+    submissionTableBody.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-response-id]');
+      if (button) loadResponseDetail(button);
     });
 
     ['status', 'limit', 'date_from', 'date_to'].forEach((name) => {

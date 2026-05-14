@@ -133,6 +133,18 @@
       margin-right: 4px;
     }
 
+    .pagination-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 8px 0 12px;
+    }
+
+    .pagination-toolbar .hint {
+      margin: 0;
+    }
+
     .stats {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -524,6 +536,7 @@
             <option value="all" {% if selected_token_rows == 'all' %}selected{% endif %}>Semua</option>
           </select>
         </div>
+        <input type="hidden" name="token_page" value="{{ selected_token_page }}">
         <button class="btn btn-sm" type="submit">Terapkan</button>
         <a class="btn btn-sm btn-secondary" id="tokenToolbarReset" href="/admin">Reset</a>
         <a class="btn btn-sm btn-secondary" id="tokenFullExportLink" href="/admin/tokens/export-excel">Export Excel Lengkap</a>
@@ -551,6 +564,11 @@
         <button class="btn btn-sm btn-danger" type="button" data-bulk-action="delete">Hapus Akun Terpilih</button>
       </div>
       <div class="hint" id="tokenFilterHint">Menampilkan {{ token_visible_count }} dari {{ token_filtered_count }} token hasil filter.</div>
+      <div class="pagination-toolbar" id="tokenPaginationToolbar">
+        <button class="btn btn-sm btn-secondary" type="button" id="tokenPrevPage" {% if selected_token_page <= 1 or selected_token_rows == 'all' %}disabled{% endif %}>Sebelumnya</button>
+        <span class="hint" id="tokenPageHint">Halaman {{ selected_token_page }} dari {{ token_total_pages }}</span>
+        <button class="btn btn-sm btn-secondary" type="button" id="tokenNextPage" {% if selected_token_page >= token_total_pages or selected_token_rows == 'all' %}disabled{% endif %}>Berikutnya</button>
+      </div>
       <table>
         <thead>
           <tr>
@@ -639,6 +657,7 @@
         <input type="hidden" name="token_status_filter" value="{{ selected_token_status_filter }}">
         <input type="hidden" name="token_last_submit_date_from" value="{{ selected_token_last_submit_date_from }}">
         <input type="hidden" name="token_last_submit_date_to" value="{{ selected_token_last_submit_date_to }}">
+        <input type="hidden" name="token_page" value="{{ selected_token_page }}">
         <input type="hidden" name="token_sort_by" value="{{ selected_token_sort_by }}">
         <input type="hidden" name="token_sort_dir" value="{{ selected_token_sort_dir }}">
         <input type="hidden" name="token_rows" value="{{ selected_token_rows }}">
@@ -650,9 +669,16 @@
           <label for="usage_date_to">Sampai</label>
           <input class="input" type="date" id="usage_date_to" name="usage_date_to" value="{{ selected_usage_date_to }}">
         </div>
+        <div class="toolbar-field">
+          <label for="usage_activity_filter">Token Tanggal</label>
+          <select class="input" id="usage_activity_filter" name="usage_activity_filter">
+            <option value="all" {% if selected_usage_activity_filter == 'all' %}selected{% endif %}>Semua Token</option>
+            <option value="active" {% if selected_usage_activity_filter == 'active' %}selected{% endif %}>Aktif/Terpakai</option>
+          </select>
+        </div>
         <button class="btn btn-sm" type="submit">Terapkan</button>
         <a class="btn btn-sm btn-secondary" id="usageToolbarReset" href="/admin">Reset</a>
-        <a class="btn btn-sm btn-secondary" id="usageExportLink" href="/admin/usage/export?date_from={{ selected_usage_date_from }}&date_to={{ selected_usage_date_to }}">Export Excel</a>
+        <a class="btn btn-sm btn-secondary" id="usageExportLink" href="/admin/usage/export?date_from={{ selected_usage_date_from }}&date_to={{ selected_usage_date_to }}{% if selected_usage_activity_filter == 'active' %}&active_only=1{% endif %}">Export Excel</a>
       </form>
       <table>
         <thead>
@@ -752,6 +778,9 @@
     const tokenBulkToolbar = document.getElementById('tokenBulkToolbar');
     const tokenSelectedCount = document.getElementById('tokenSelectedCount');
     const tokenSelectAll = document.getElementById('tokenSelectAll');
+    const tokenPrevPage = document.getElementById('tokenPrevPage');
+    const tokenNextPage = document.getElementById('tokenNextPage');
+    const tokenPageHint = document.getElementById('tokenPageHint');
     let toastTimer = null;
 
     function escapeHtml(value) {
@@ -786,7 +815,7 @@
     }
 
     function syncUsageHiddenFields() {
-      const mappings = ['token_filter', 'token_area_filter', 'token_team_filter', 'token_status_filter', 'token_last_submit_date_from', 'token_last_submit_date_to', 'token_sort_by', 'token_sort_dir', 'token_rows'];
+      const mappings = ['token_filter', 'token_area_filter', 'token_team_filter', 'token_status_filter', 'token_last_submit_date_from', 'token_last_submit_date_to', 'token_page', 'token_sort_by', 'token_sort_dir', 'token_rows'];
       mappings.forEach((name) => {
         const tokenInput = tokenToolbarForm.elements[name];
         const usageInput = usageToolbarForm.elements[name];
@@ -797,7 +826,7 @@
     function buildDashboardQuery() {
       syncUsageHiddenFields();
       const params = new URLSearchParams();
-      ['token_filter', 'token_area_filter', 'token_team_filter', 'token_status_filter', 'token_last_submit_date_from', 'token_last_submit_date_to', 'token_sort_by', 'token_sort_dir', 'token_rows'].forEach((name) => {
+      ['token_filter', 'token_area_filter', 'token_team_filter', 'token_status_filter', 'token_last_submit_date_from', 'token_last_submit_date_to', 'token_page', 'token_sort_by', 'token_sort_dir', 'token_rows'].forEach((name) => {
         const value = tokenToolbarForm.elements[name]?.value ?? '';
         if (value) params.set(name, value);
       });
@@ -818,8 +847,10 @@
       const exportParams = new URLSearchParams();
       const dateFrom = params.get('usage_date_from') || '';
       const dateTo = params.get('usage_date_to') || '';
+      const activityFilter = params.get('usage_activity_filter') || 'all';
       if (dateFrom) exportParams.set('date_from', dateFrom);
       if (dateTo) exportParams.set('date_to', dateTo);
+      if (activityFilter === 'active') exportParams.set('active_only', '1');
       usageExportLink.href = '/admin/usage/export' + (exportParams.toString() ? '?' + exportParams.toString() : '');
       tokenFullExportLink.href = '/admin/tokens/export-excel' + (params.toString() ? '?' + params.toString() : '');
     }
@@ -930,15 +961,22 @@
       tokenToolbarForm.elements.token_sort_by.value = data.selected_token_sort_by || 'kc_name';
       tokenToolbarForm.elements.token_sort_dir.value = data.selected_token_sort_dir || 'asc';
       tokenToolbarForm.elements.token_rows.value = data.selected_token_rows || '10';
+      tokenToolbarForm.elements.token_page.value = data.selected_token_page || '1';
 
       usageToolbarForm.elements.usage_date_from.value = data.selected_usage_date_from || '';
       usageToolbarForm.elements.usage_date_to.value = data.selected_usage_date_to || '';
+      usageToolbarForm.elements.usage_activity_filter.value = data.selected_usage_activity_filter || 'all';
       syncUsageHiddenFields();
 
       tokenFilterHint.textContent = `Menampilkan ${data.token_visible_count} dari ${data.token_filtered_count} token hasil filter.`;
       usageDateLabel.textContent = data.usage_date;
       renderTokenRows(data.token_rows || []);
       renderUsageRows(data.usage_rows || []);
+      const tokenPage = Number(data.selected_token_page || 1);
+      const tokenTotalPages = Number(data.token_total_pages || 1);
+      tokenPageHint.textContent = `Halaman ${tokenPage} dari ${tokenTotalPages}`;
+      tokenPrevPage.disabled = tokenPage <= 1 || data.selected_token_rows === 'all';
+      tokenNextPage.disabled = tokenPage >= tokenTotalPages || data.selected_token_rows === 'all';
       updateExportLink(params);
     }
 
@@ -1010,6 +1048,7 @@
 
     tokenToolbarForm.addEventListener('submit', (event) => {
       event.preventDefault();
+      tokenToolbarForm.elements.token_page.value = '1';
       refreshDashboardData();
     });
 
@@ -1027,6 +1066,7 @@
       tokenToolbarForm.elements.token_status_filter.value = '';
       tokenToolbarForm.elements.token_last_submit_date_from.value = '';
       tokenToolbarForm.elements.token_last_submit_date_to.value = '';
+      tokenToolbarForm.elements.token_page.value = '1';
       tokenToolbarForm.elements.token_sort_by.value = 'kc_name';
       tokenToolbarForm.elements.token_sort_dir.value = 'asc';
       tokenToolbarForm.elements.token_rows.value = '10';
@@ -1037,6 +1077,7 @@
       event.preventDefault();
       usageToolbarForm.elements.usage_date_from.value = '';
       usageToolbarForm.elements.usage_date_to.value = '';
+      usageToolbarForm.elements.usage_activity_filter.value = 'all';
       refreshDashboardData();
     });
 
@@ -1218,10 +1259,25 @@
     });
 
     ['token_area_filter', 'token_team_filter', 'token_status_filter', 'token_last_submit_date_from', 'token_last_submit_date_to', 'token_sort_by', 'token_sort_dir', 'token_rows'].forEach((name) => {
-      tokenToolbarForm.elements[name].addEventListener('change', () => refreshDashboardData());
+      tokenToolbarForm.elements[name].addEventListener('change', () => {
+        tokenToolbarForm.elements.token_page.value = '1';
+        refreshDashboardData();
+      });
     });
 
-    ['usage_date_from', 'usage_date_to'].forEach((name) => {
+    tokenPrevPage.addEventListener('click', () => {
+      const currentPage = Math.max(1, Number(tokenToolbarForm.elements.token_page.value || 1));
+      tokenToolbarForm.elements.token_page.value = String(Math.max(1, currentPage - 1));
+      refreshDashboardData();
+    });
+
+    tokenNextPage.addEventListener('click', () => {
+      const currentPage = Math.max(1, Number(tokenToolbarForm.elements.token_page.value || 1));
+      tokenToolbarForm.elements.token_page.value = String(currentPage + 1);
+      refreshDashboardData();
+    });
+
+    ['usage_date_from', 'usage_date_to', 'usage_activity_filter'].forEach((name) => {
       usageToolbarForm.elements[name].addEventListener('change', () => refreshDashboardData());
     });
 

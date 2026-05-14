@@ -762,6 +762,9 @@
 
     let allBumoOptions = [];
     let allKcAreaOptions = [];
+    let kcAreaSearchTimer = null;
+    let kcAreaSearchSeq = 0;
+    const kcAreaSearchCache = {};
     let isSubmitting = false;
     let allowSubmitNavigation = false;
     let loadingStartedAt = 0;
@@ -1087,6 +1090,58 @@
       updateKcAreaLabel();
     }
 
+    async function searchKcAreaOptions() {
+      const keyword = (kcAreaSearch.value || '').trim();
+      const selectedValue = kcArea.dataset.selected || kcArea.value || '';
+
+      if (keyword.length < kcAreaMinSearchChars && !selectedValue) {
+        allKcAreaOptions = [];
+        renderOptions(kcArea, [], 'value', 'label', 'Ketik minimal 2 huruf', '');
+        updateKcAreaLabel();
+        return;
+      }
+
+      const cacheKey = keyword.toLowerCase() + '::' + selectedValue;
+      if (kcAreaSearchCache[cacheKey]) {
+        allKcAreaOptions = kcAreaSearchCache[cacheKey];
+        refreshKcAreaOptions();
+        return;
+      }
+
+      const searchSeq = ++kcAreaSearchSeq;
+      renderOptions(kcArea, [], 'value', 'label', 'Memuat KC Area...', selectedValue);
+
+      try {
+        const params = new URLSearchParams();
+        if (keyword) params.set('q', keyword);
+        if (selectedValue) params.set('selected', selectedValue);
+        const response = await fetch('/api/kc-areas/search?' + params.toString(), {
+          headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        });
+        const data = await response.json().catch(() => ({}));
+        if (searchSeq !== kcAreaSearchSeq) return;
+        if (!response.ok) throw new Error(data.error || 'Gagal mencari KC Area.');
+
+        allKcAreaOptions = Array.isArray(data.kc_area_options) ? data.kc_area_options : [];
+        kcAreaSearchCache[cacheKey] = allKcAreaOptions;
+        refreshKcAreaOptions();
+      } catch (err) {
+        console.error(err);
+        if (searchSeq === kcAreaSearchSeq) {
+          renderOptions(kcArea, [], 'value', 'label', 'Gagal memuat KC Area', selectedValue);
+          setTokenStatus('Gagal mencari KC Area: ' + (err.message || 'unknown error'), 'error');
+        }
+      }
+    }
+
+    function scheduleKcAreaSearch() {
+      if (kcAreaSearchTimer) window.clearTimeout(kcAreaSearchTimer);
+      kcAreaSearchTimer = window.setTimeout(searchKcAreaOptions, 250);
+    }
+
     function updateKcAreaLabel() {
       if (!kcArea || !kcAreaLabelInput) return;
       const selectedOption = kcArea.options[kcArea.selectedIndex];
@@ -1137,7 +1192,7 @@
       updatePurchaseFields();
 
       if (allBumoOptions.length) refreshBumoOptions();
-      if (allKcAreaOptions.length) refreshKcAreaOptions();
+      searchKcAreaOptions();
     }
 
     function getCachedMasterData() {
@@ -1152,12 +1207,12 @@
           return null;
         }
 
-        if (!Array.isArray(cached.bumo_options) || !Array.isArray(cached.kc_area_options)) {
+        if (!Array.isArray(cached.bumo_options) || typeof cached.kc_area_count !== 'number') {
           window.sessionStorage.removeItem(masterDataCacheKey);
           return null;
         }
 
-        if (cached.bumo_options.length === 0 || cached.kc_area_options.length === 0) {
+        if (cached.bumo_options.length === 0 || cached.kc_area_count === 0) {
           window.sessionStorage.removeItem(masterDataCacheKey);
           return null;
         }
@@ -1169,25 +1224,25 @@
     }
 
     function saveMasterDataCache(data) {
-      if (!data || !Array.isArray(data.bumo_options) || !Array.isArray(data.kc_area_options)) return;
-      if (data.bumo_options.length === 0 || data.kc_area_options.length === 0) return;
+      if (!data || !Array.isArray(data.bumo_options) || typeof data.kc_area_count !== 'number') return;
+      if (data.bumo_options.length === 0 || data.kc_area_count === 0) return;
 
       try {
         window.sessionStorage.setItem(masterDataCacheKey, JSON.stringify({
           saved_at: Date.now(),
           bumo_options: data.bumo_options || [],
-          kc_area_options: data.kc_area_options || [],
+          kc_area_count: data.kc_area_count || 0,
         }));
       } catch (_err) {}
     }
 
     function applyMasterData(data, sourceLabel) {
       allBumoOptions = data.bumo_options || [];
-      allKcAreaOptions = data.kc_area_options || [];
+      allKcAreaOptions = [];
 
-      if (allBumoOptions.length === 0 || allKcAreaOptions.length === 0) {
+      if (allBumoOptions.length === 0 || Number(data.kc_area_count || 0) === 0) {
         refreshBumoOptions();
-        refreshKcAreaOptions();
+        searchKcAreaOptions();
         setTokenStatus('Master data kosong. Coba refresh halaman atau login ulang.', 'error');
         return;
       }
@@ -1196,7 +1251,7 @@
       kcArea.dataset.selected = {{ ('' if reset_form else request.form.get('kc_area', ''))|tojson }};
 
       refreshBumoOptions();
-      refreshKcAreaOptions();
+      searchKcAreaOptions();
       if (shouldResetFormAfterSubmit) resetSurveyFormView();
       setTokenStatus(sourceLabel, 'ok');
     }
@@ -1314,7 +1369,12 @@
     }
 
     if (kcAreaSearch) {
-      kcAreaSearch.addEventListener('input', refreshKcAreaOptions);
+      kcAreaSearch.addEventListener('input', () => {
+        kcArea.dataset.selected = '';
+        kcArea.value = '';
+        kcAreaLabelInput.value = '';
+        scheduleKcAreaSearch();
+      });
     }
 
     if (kcArea) {
