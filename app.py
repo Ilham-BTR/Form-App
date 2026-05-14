@@ -126,6 +126,7 @@ DEFAULT_DAILY_LIMIT = 40
 RESERVED_PHONE_TIMEOUT_MINUTES = get_positive_int_env("RESERVED_PHONE_TIMEOUT_MINUTES", 120)
 DUPLICATE_SUBMISSION_WINDOW_MINUTES = get_positive_int_env("DUPLICATE_SUBMISSION_WINDOW_MINUTES", 10)
 PENDING_DUPLICATE_BLOCK_SECONDS = min(get_positive_int_env("PENDING_DUPLICATE_BLOCK_SECONDS", 90), 90)
+MASTERDATA_API_TIMEOUT_SECONDS = get_positive_int_env("MASTERDATA_API_TIMEOUT_SECONDS", 300)
 SUBMISSION_LOG_LIMIT_OPTIONS = ["25", "50", "100", "200", "500", "1000", "10000", "all"]
 MAX_SUBMISSION_LOG_LIMIT = 10000
 
@@ -2865,6 +2866,29 @@ def delete_kc_token(kc_token):
     conn.close()
 
 
+def delete_kc_tokens(kc_tokens):
+    tokens = normalize_kc_token_selection(kc_tokens)
+    if not tokens:
+        return 0
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE customer_directory
+        SET reserved_by_token = NULL, reserved_at = NULL, updated_at = %s
+        WHERE is_used = 0 AND reserved_by_token = ANY(%s)
+        """,
+        (get_now_db_string(), tokens),
+    )
+    cur.execute("DELETE FROM kc_token_usage WHERE kc_token = ANY(%s)", (tokens,))
+    cur.execute("DELETE FROM valid_kc_tokens WHERE kc_token = ANY(%s)", (tokens,))
+    deleted_count = cur.rowcount
+    conn.commit()
+    conn.close()
+    return deleted_count
+
+
 def get_today_kc_usage_summary(date_from=None, date_to=None):
     today = get_today_wib()
     qdate_from = date_from if date_from else today
@@ -3775,7 +3799,7 @@ def fetch_bumo_options(bearer_token):
     headers = build_browser_style_headers_for_master(timestamp, hash_val, bearer_token)
 
     url = DEFAULT_BASE_URL.rstrip("/") + DEFAULT_BUMO_ENDPOINT
-    response = requests.get(url, headers=headers, timeout=30, verify=False)
+    response = requests.get(url, headers=headers, timeout=MASTERDATA_API_TIMEOUT_SECONDS, verify=False)
     response.raise_for_status()
 
     data = response.json()
@@ -3792,7 +3816,7 @@ def fetch_kc_area_options(bearer_token):
     headers = build_browser_style_headers_for_master(timestamp, hash_val, bearer_token)
 
     url = DEFAULT_BASE_URL.rstrip("/") + DEFAULT_KC_AREA_ENDPOINT
-    response = requests.get(url, headers=headers, timeout=30, verify=False)
+    response = requests.get(url, headers=headers, timeout=MASTERDATA_API_TIMEOUT_SECONDS, verify=False)
     response.raise_for_status()
 
     data = response.json()
@@ -5753,6 +5777,12 @@ def admin_bulk_token_action():
                 "reset_count": reset_count,
                 "usage_date": target_date,
             })
+
+        if action == "delete":
+            deleted_count = delete_kc_tokens(kc_tokens)
+            if current_user_token in kc_tokens:
+                clear_user_session()
+            return jsonify({"success": True, "action": action, "deleted_count": deleted_count})
 
         if action == "refresh_bearer":
             successes = []

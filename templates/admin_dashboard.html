@@ -548,6 +548,7 @@
         <button class="btn btn-sm" type="button" data-bulk-action="refresh_bearer">Refresh Token Terpilih</button>
         <button class="btn btn-sm btn-secondary" type="button" data-export-format="txt">Export TXT Terpilih</button>
         <button class="btn btn-sm btn-secondary" type="button" data-export-format="xlsx">Export Excel Terpilih</button>
+        <button class="btn btn-sm btn-danger" type="button" data-bulk-action="delete">Hapus Akun Terpilih</button>
       </div>
       <div class="hint" id="tokenFilterHint">Menampilkan {{ token_visible_count }} dari {{ token_filtered_count }} token hasil filter.</div>
       <table>
@@ -1086,7 +1087,8 @@
         activate: `Aktifkan ${kcTokens.length} akun terpilih?`,
         deactivate: `Nonaktifkan ${kcTokens.length} akun terpilih?`,
         reset_usage_today: `Reset Terpakai Hari Ini untuk ${kcTokens.length} akun terpilih ke 0?`,
-        refresh_bearer: `Refresh bearer token untuk ${kcTokens.length} akun terpilih?\nJika gagal, tiap akun akan dicoba ulang maksimal 3 kali.`
+        refresh_bearer: `Refresh bearer token untuk ${kcTokens.length} akun terpilih?\nJika gagal, tiap akun akan dicoba ulang maksimal 3 kali.`,
+        delete: `Hapus permanen ${kcTokens.length} akun terpilih?\nData token dan usage akun ini akan dihapus.`
       };
       if (!confirm(confirmMessages[action] || 'Proses akun terpilih?')) return;
 
@@ -1096,6 +1098,7 @@
         if (action === 'activate') message = `${data.updated_count} akun berhasil diaktifkan.`;
         if (action === 'deactivate') message = `${data.updated_count} akun berhasil dinonaktifkan.`;
         if (action === 'reset_usage_today') message = `${data.reset_count} akun berhasil direset untuk ${data.usage_date}.`;
+        if (action === 'delete') message = `${data.deleted_count} akun berhasil dihapus.`;
         if (action === 'refresh_bearer') {
           message = `Refresh selesai. Berhasil: ${data.success_count}, gagal: ${data.failure_count}.`;
           if (data.failure_count && data.failures?.length) {
