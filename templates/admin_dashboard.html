@@ -486,6 +486,14 @@
           </select>
         </div>
         <div class="toolbar-field">
+          <label for="token_last_submit_date_from">Submit Dari</label>
+          <input class="input" type="date" id="token_last_submit_date_from" name="token_last_submit_date_from" value="{{ selected_token_last_submit_date_from }}">
+        </div>
+        <div class="toolbar-field">
+          <label for="token_last_submit_date_to">Submit Sampai</label>
+          <input class="input" type="date" id="token_last_submit_date_to" name="token_last_submit_date_to" value="{{ selected_token_last_submit_date_to }}">
+        </div>
+        <div class="toolbar-field">
           <label for="token_sort_by">Sort</label>
           <select class="input" id="token_sort_by" name="token_sort_by">
             <option value="kc_name" {% if selected_token_sort_by == 'kc_name' %}selected{% endif %}>Nama KC</option>
@@ -518,6 +526,7 @@
         </div>
         <button class="btn btn-sm" type="submit">Terapkan</button>
         <a class="btn btn-sm btn-secondary" id="tokenToolbarReset" href="/admin">Reset</a>
+        <a class="btn btn-sm btn-secondary" id="tokenFullExportLink" href="/admin/tokens/export-excel">Export Excel Lengkap</a>
       </form>
       <div class="hint" style="margin-top: -4px; margin-bottom: 10px;">{{ token_filter_help_text }}</div>
       <div class="row-actions" style="margin-bottom: 12px;">
@@ -627,6 +636,8 @@
         <input type="hidden" name="token_area_filter" value="{{ selected_token_area_filter }}">
         <input type="hidden" name="token_team_filter" value="{{ selected_token_team_filter }}">
         <input type="hidden" name="token_status_filter" value="{{ selected_token_status_filter }}">
+        <input type="hidden" name="token_last_submit_date_from" value="{{ selected_token_last_submit_date_from }}">
+        <input type="hidden" name="token_last_submit_date_to" value="{{ selected_token_last_submit_date_to }}">
         <input type="hidden" name="token_sort_by" value="{{ selected_token_sort_by }}">
         <input type="hidden" name="token_sort_dir" value="{{ selected_token_sort_dir }}">
         <input type="hidden" name="token_rows" value="{{ selected_token_rows }}">
@@ -732,6 +743,7 @@
     const tokenFilterHint = document.getElementById('tokenFilterHint');
     const usageDateLabel = document.getElementById('usageDateLabel');
     const usageExportLink = document.getElementById('usageExportLink');
+    const tokenFullExportLink = document.getElementById('tokenFullExportLink');
     const ajaxMessage = document.getElementById('dashboardAjaxMessage');
     const resetAllUsageTodayForm = document.getElementById('resetAllUsageTodayForm');
     const activateAllTokensForm = document.getElementById('activateAllTokensForm');
@@ -773,7 +785,7 @@
     }
 
     function syncUsageHiddenFields() {
-      const mappings = ['token_filter', 'token_area_filter', 'token_team_filter', 'token_status_filter', 'token_sort_by', 'token_sort_dir', 'token_rows'];
+      const mappings = ['token_filter', 'token_area_filter', 'token_team_filter', 'token_status_filter', 'token_last_submit_date_from', 'token_last_submit_date_to', 'token_sort_by', 'token_sort_dir', 'token_rows'];
       mappings.forEach((name) => {
         const tokenInput = tokenToolbarForm.elements[name];
         const usageInput = usageToolbarForm.elements[name];
@@ -784,7 +796,7 @@
     function buildDashboardQuery() {
       syncUsageHiddenFields();
       const params = new URLSearchParams();
-      ['token_filter', 'token_area_filter', 'token_team_filter', 'token_status_filter', 'token_sort_by', 'token_sort_dir', 'token_rows'].forEach((name) => {
+      ['token_filter', 'token_area_filter', 'token_team_filter', 'token_status_filter', 'token_last_submit_date_from', 'token_last_submit_date_to', 'token_sort_by', 'token_sort_dir', 'token_rows'].forEach((name) => {
         const value = tokenToolbarForm.elements[name]?.value ?? '';
         if (value) params.set(name, value);
       });
@@ -808,6 +820,7 @@
       if (dateFrom) exportParams.set('date_from', dateFrom);
       if (dateTo) exportParams.set('date_to', dateTo);
       usageExportLink.href = '/admin/usage/export' + (exportParams.toString() ? '?' + exportParams.toString() : '');
+      tokenFullExportLink.href = '/admin/tokens/export-excel' + (params.toString() ? '?' + params.toString() : '');
     }
 
     function getSelectedTokens() {
@@ -911,6 +924,8 @@
       tokenToolbarForm.elements.token_area_filter.value = data.selected_token_area_filter || '';
       tokenToolbarForm.elements.token_team_filter.value = data.selected_token_team_filter || '';
       tokenToolbarForm.elements.token_status_filter.value = data.selected_token_status_filter || '';
+      tokenToolbarForm.elements.token_last_submit_date_from.value = data.selected_token_last_submit_date_from || '';
+      tokenToolbarForm.elements.token_last_submit_date_to.value = data.selected_token_last_submit_date_to || '';
       tokenToolbarForm.elements.token_sort_by.value = data.selected_token_sort_by || 'kc_name';
       tokenToolbarForm.elements.token_sort_dir.value = data.selected_token_sort_dir || 'asc';
       tokenToolbarForm.elements.token_rows.value = data.selected_token_rows || '10';
@@ -1009,6 +1024,8 @@
       tokenToolbarForm.elements.token_area_filter.value = '';
       tokenToolbarForm.elements.token_team_filter.value = '';
       tokenToolbarForm.elements.token_status_filter.value = '';
+      tokenToolbarForm.elements.token_last_submit_date_from.value = '';
+      tokenToolbarForm.elements.token_last_submit_date_to.value = '';
       tokenToolbarForm.elements.token_sort_by.value = 'kc_name';
       tokenToolbarForm.elements.token_sort_dir.value = 'asc';
       tokenToolbarForm.elements.token_rows.value = '10';
@@ -1197,7 +1214,7 @@
       }
     });
 
-    ['token_area_filter', 'token_team_filter', 'token_status_filter', 'token_sort_by', 'token_sort_dir', 'token_rows'].forEach((name) => {
+    ['token_area_filter', 'token_team_filter', 'token_status_filter', 'token_last_submit_date_from', 'token_last_submit_date_to', 'token_sort_by', 'token_sort_dir', 'token_rows'].forEach((name) => {
       tokenToolbarForm.elements[name].addEventListener('change', () => refreshDashboardData());
     });
 
@@ -1205,6 +1222,7 @@
       usageToolbarForm.elements[name].addEventListener('change', () => refreshDashboardData());
     });
 
+    updateExportLink(buildDashboardQuery());
     updateTokenSelectionState();
   </script>
 </body>

@@ -2576,11 +2576,34 @@ def get_token_sort_value(row, sort_by):
     return str(row.get(sort_by) or "").lower()
 
 
-def filter_sort_limit_token_rows(rows, filter_text="", status_filter="", area_filter="", team_filter="", sort_by="kc_name", sort_dir="asc", rows_value="10"):
+def get_token_last_submit_date(row):
+    last_submit_at = str(row.get("last_submit_at") or "").strip()
+    if not last_submit_at or last_submit_at == "-":
+        return ""
+    try:
+        return datetime.strptime(last_submit_at[:10], "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        return ""
+
+
+def filter_sort_limit_token_rows(
+    rows,
+    filter_text="",
+    status_filter="",
+    area_filter="",
+    team_filter="",
+    last_submit_date_from="",
+    last_submit_date_to="",
+    sort_by="kc_name",
+    sort_dir="asc",
+    rows_value="10",
+):
     current_filter = str(filter_text or "").strip().lower()
     current_status = str(status_filter or "").strip().lower()
     current_area = str(area_filter or "").strip().lower()
     current_team = str(team_filter or "").strip().lower()
+    current_last_submit_from = normalize_submission_date_filter(last_submit_date_from)
+    current_last_submit_to = normalize_submission_date_filter(last_submit_date_to)
     sort_by, sort_dir = normalize_token_sort(sort_by, sort_dir)
     rows_value = normalize_token_rows_param(rows_value)
 
@@ -2595,6 +2618,15 @@ def filter_sort_limit_token_rows(rows, filter_text="", status_filter="", area_fi
 
     if current_team:
         filtered_rows = [row for row in filtered_rows if str(row.get("team") or "").strip().lower() == current_team]
+
+    if current_last_submit_from:
+        filtered_rows = [row for row in filtered_rows if get_token_last_submit_date(row) >= current_last_submit_from]
+
+    if current_last_submit_to:
+        filtered_rows = [
+            row for row in filtered_rows
+            if get_token_last_submit_date(row) and get_token_last_submit_date(row) <= current_last_submit_to
+        ]
 
     if current_filter:
         filter_terms = [term.strip() for term in re.split(r"[\r\n,;|]+", current_filter) if term.strip()]
@@ -3007,6 +3039,121 @@ def build_selected_kc_token_export_excel(kc_tokens):
     wb.save(output)
     output.seek(0)
     return output.read(), len(rows)
+
+
+def build_full_kc_token_export_excel(args):
+    def parse_date_arg(key):
+        return normalize_submission_date_filter(args.get(key))
+
+    usage_date_from = parse_date_arg("usage_date_from")
+    usage_date_to = parse_date_arg("usage_date_to")
+    token_filter = (args.get("token_filter") or "").strip()
+    status_filter = (args.get("token_status_filter") or "").strip().lower()
+    area_filter = (args.get("token_area_filter") or "").strip()
+    team_filter = (args.get("token_team_filter") or "").strip()
+    last_submit_date_from = parse_date_arg("token_last_submit_date_from")
+    last_submit_date_to = parse_date_arg("token_last_submit_date_to")
+    if status_filter not in ("", "aktif", "nonaktif"):
+        status_filter = ""
+    sort_by, sort_dir = normalize_token_sort(
+        args.get("token_sort_by", "kc_name"),
+        args.get("token_sort_dir", "asc"),
+    )
+
+    token_rows = get_all_kc_tokens()
+    usage_rows, usage_date = get_today_kc_usage_summary(
+        date_from=usage_date_from or None,
+        date_to=usage_date_to or None,
+    )
+    usage_by_token = {row["kc_token"]: row["total_submit"] for row in usage_rows}
+    purchase_counts_by_token = get_kc_purchase_counts(
+        date_from=usage_date_from,
+        date_to=usage_date_to,
+    )
+
+    export_rows = []
+    for row in token_rows:
+        purchase_counts = purchase_counts_by_token.get(row["kc_token"], {})
+        export_rows.append({
+            "kc_token": row["kc_token"],
+            "kc_name": row["kc_name"],
+            "team": row.get("team") or "-",
+            "token_area": row["token_area"] or "-",
+            "kc_username": row["kc_username"] or "-",
+            "kc_password": row["kc_password"] or "-",
+            "bearer_token": row["bearer_token"] or "",
+            "last_bearer_updated_at": row.get("last_bearer_updated_at") or "-",
+            "last_submit_at": row.get("last_submit_at") or "-",
+            "daily_limit": row["daily_limit"],
+            "total_submit": usage_by_token.get(row["kc_token"], 0),
+            "purchase_yes": purchase_counts.get("purchase_yes", 0),
+            "purchase_no": purchase_counts.get("purchase_no", 0),
+            "lighter_yes": purchase_counts.get("lighter_yes", 0),
+            "is_active": row["is_active"],
+        })
+
+    export_rows, export_count = filter_sort_limit_token_rows(
+        rows=export_rows,
+        filter_text=token_filter,
+        status_filter=status_filter,
+        area_filter=area_filter,
+        team_filter=team_filter,
+        last_submit_date_from=last_submit_date_from,
+        last_submit_date_to=last_submit_date_to,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        rows_value="all",
+    )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Daftar KC Token"
+    ws.append([
+        "Nama KC",
+        "Team",
+        "Area",
+        "KC Token",
+        "Username",
+        "Password",
+        "Bearer Token",
+        "Update Bearer",
+        "Submit Terakhir",
+        "Limit Harian",
+        f"Total Submit (NOC) - {usage_date}",
+        "Beli (NOT)",
+        "Tidak Beli",
+        "Lighter",
+        "Status",
+    ])
+    for row in export_rows:
+        ws.append([
+            row["kc_name"],
+            row["team"],
+            row["token_area"],
+            row["kc_token"],
+            row["kc_username"],
+            row["kc_password"],
+            row["bearer_token"],
+            row["last_bearer_updated_at"],
+            row["last_submit_at"],
+            row["daily_limit"],
+            row["total_submit"],
+            row["purchase_yes"],
+            row["purchase_no"],
+            row["lighter_yes"],
+            "Aktif" if row["is_active"] == 1 else "Nonaktif",
+        ])
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    for column_cells in ws.columns:
+        max_length = max(len(str(cell.value or "")) for cell in column_cells)
+        ws.column_dimensions[column_cells[0].column_letter].width = min(max(max_length + 2, 12), 48)
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output.read(), export_count
 
 
 def get_kc_token_usage(kc_token, usage_date):
@@ -4460,6 +4607,8 @@ def build_admin_dashboard_context(args):
     selected_token_status_filter = (args.get("token_status_filter") or "").strip().lower()
     selected_token_area_filter = (args.get("token_area_filter") or "").strip()
     selected_token_team_filter = (args.get("token_team_filter") or "").strip()
+    selected_token_last_submit_date_from = parse_date_param("token_last_submit_date_from")
+    selected_token_last_submit_date_to = parse_date_param("token_last_submit_date_to")
     if selected_token_status_filter not in ("", "aktif", "nonaktif"):
         selected_token_status_filter = ""
     selected_token_rows = normalize_token_rows_param(args.get("token_rows", "10"))
@@ -4507,6 +4656,8 @@ def build_admin_dashboard_context(args):
         status_filter=selected_token_status_filter,
         area_filter=selected_token_area_filter,
         team_filter=selected_token_team_filter,
+        last_submit_date_from=selected_token_last_submit_date_from,
+        last_submit_date_to=selected_token_last_submit_date_to,
         sort_by=selected_token_sort_by,
         sort_dir=selected_token_sort_dir,
         rows_value=selected_token_rows,
@@ -4543,6 +4694,8 @@ def build_admin_dashboard_context(args):
         "selected_token_status_filter": selected_token_status_filter,
         "selected_token_area_filter": selected_token_area_filter,
         "selected_token_team_filter": selected_token_team_filter,
+        "selected_token_last_submit_date_from": selected_token_last_submit_date_from,
+        "selected_token_last_submit_date_to": selected_token_last_submit_date_to,
         "selected_token_rows": selected_token_rows,
         "selected_token_sort_by": selected_token_sort_by,
         "selected_token_sort_dir": selected_token_sort_dir,
@@ -5462,6 +5615,19 @@ def admin_export_tokens():
     return Response(
         csv_content,
         mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.route("/admin/tokens/export-excel")
+@admin_required
+def admin_export_tokens_excel():
+    excel_content, _export_count = build_full_kc_token_export_excel(request.args)
+    today = get_today_wib()
+    filename = f"daftar-kc-token-{today}.xlsx"
+    return Response(
+        excel_content,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
