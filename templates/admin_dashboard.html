@@ -953,7 +953,7 @@
         const value = tokenToolbarForm.elements[name]?.value ?? '';
         if (value) params.set(name, value);
       });
-      ['usage_date_from', 'usage_date_to'].forEach((name) => {
+      ['usage_date_from', 'usage_date_to', 'usage_activity_filter'].forEach((name) => {
         const value = usageToolbarForm.elements[name]?.value ?? '';
         if (value) params.set(name, value);
       });
@@ -1120,6 +1120,10 @@
         updateUrl(params);
         showMessage(message, isError);
       } catch (err) {
+        if (err instanceof TypeError && String(err.message || '').toLowerCase().includes('fetch')) {
+          window.location.href = '/admin?' + params.toString();
+          return;
+        }
         showMessage(err.message || 'Terjadi error saat memuat dashboard.', true);
       } finally {
         setLoading(false);
