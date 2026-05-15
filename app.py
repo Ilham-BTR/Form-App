@@ -886,14 +886,14 @@ def delete_submission_attempts_by_filter(status_filter="", kc_token_filter="", p
     return deleted_count
 
 
-def get_kc_purchase_counts(date_from="", date_to=""):
+def get_kc_purchase_counts(date_from="", date_to="", kc_tokens=None):
     date_from = normalize_submission_date_filter(date_from) or get_today_wib()
     date_to = normalize_submission_date_filter(date_to) or date_from
+    selected_tokens = [str(token).strip() for token in (kc_tokens or []) if str(token).strip()]
 
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute(
-        """
+    query = ["""
         SELECT
             s.kc_token,
             SUM(CASE WHEN s.has_purchased = 'true' THEN 1 ELSE 0 END) AS purchase_yes,
@@ -904,10 +904,15 @@ def get_kc_purchase_counts(date_from="", date_to=""):
         WHERE s.created_at >= %s
           AND s.created_at <= %s
           AND s.status_local IN ('SUCCESS', 'LIKELY_SUCCESS')
+    """]
+    params = [f"{date_from} 00:00:00", f"{date_to} 23:59:59"]
+    if selected_tokens:
+        query.append("AND s.kc_token = ANY(%s)")
+        params.append(selected_tokens)
+    query.append("""
         GROUP BY s.kc_token
-        """,
-        (f"{date_from} 00:00:00", f"{date_to} 23:59:59"),
-    )
+    """)
+    cur.execute("\n".join(query), params)
     rows = cur.fetchall()
     conn.close()
     return {
@@ -919,6 +924,32 @@ def get_kc_purchase_counts(date_from="", date_to=""):
         }
         for row in rows
     }
+
+
+def get_kc_purchase_counts_for_usage_rows(usage_rows, date_from="", date_to=""):
+    date_from = normalize_submission_date_filter(date_from)
+    date_to = normalize_submission_date_filter(date_to)
+    if date_from or date_to:
+        return get_kc_purchase_counts(date_from=date_from, date_to=date_to)
+
+    tokens_by_date = {}
+    for row in usage_rows:
+        total_submit = int(row.get("total_submit") or 0)
+        source_date = normalize_submission_date_filter(row.get("usage_source_date"))
+        token = str(row.get("kc_token") or "").strip()
+        if token and source_date and total_submit > 0:
+            tokens_by_date.setdefault(source_date, []).append(token)
+
+    counts_by_token = {}
+    for source_date, tokens in tokens_by_date.items():
+        counts_by_token.update(
+            get_kc_purchase_counts(
+                date_from=source_date,
+                date_to=source_date,
+                kc_tokens=tokens,
+            )
+        )
+    return counts_by_token
 
 
 def get_kc_token_card_stats(kc_token, daily_limit):
@@ -3174,19 +3205,24 @@ def get_today_kc_usage_summary(date_from=None, date_to=None):
     conn = get_db_connection()
     cur = conn.cursor()
     if qdate_from == qdate_to:
-        # Single-day view: carry over previous day's usage if limit was not reached
+        # Single-day view: keep showing the last submit data until an admin reset writes a newer zero row.
         cur.execute("""
             SELECT v.kc_token, v.kc_name, v.team, v.token_area, v.kc_username, v.kc_password, v.bearer_token, v.daily_limit, v.is_active,
                    CASE
                        WHEN today_u.total_submit IS NOT NULL THEN today_u.total_submit
-                       WHEN prev_u.total_submit IS NOT NULL AND prev_u.total_submit < v.daily_limit THEN prev_u.total_submit
+                       WHEN prev_u.total_submit IS NOT NULL THEN prev_u.total_submit
                        ELSE 0
-                   END AS total_submit
+                   END AS total_submit,
+                   CASE
+                       WHEN today_u.total_submit IS NOT NULL THEN today_u.usage_date
+                       WHEN prev_u.total_submit IS NOT NULL THEN prev_u.usage_date
+                       ELSE NULL
+                   END AS usage_source_date
             FROM valid_kc_tokens v
             LEFT JOIN kc_token_usage today_u
               ON today_u.kc_token = v.kc_token AND today_u.usage_date = %s
             LEFT JOIN LATERAL (
-                SELECT total_submit FROM kc_token_usage
+                SELECT usage_date, total_submit FROM kc_token_usage
                 WHERE kc_token = v.kc_token AND usage_date < %s
                 ORDER BY usage_date DESC LIMIT 1
             ) prev_u ON TRUE
@@ -3195,7 +3231,8 @@ def get_today_kc_usage_summary(date_from=None, date_to=None):
     else:
         cur.execute("""
             SELECT v.kc_token, v.kc_name, v.team, v.token_area, v.kc_username, v.kc_password, v.bearer_token, v.daily_limit, v.is_active,
-                   COALESCE(SUM(u.total_submit), 0) AS total_submit
+                   COALESCE(SUM(u.total_submit), 0) AS total_submit,
+                   NULL AS usage_source_date
             FROM valid_kc_tokens v
             LEFT JOIN kc_token_usage u
               ON v.kc_token = u.kc_token
@@ -3370,7 +3407,8 @@ def build_full_kc_token_export_excel(args):
         date_to=usage_date_to or None,
     )
     usage_by_token = {row["kc_token"]: row["total_submit"] for row in usage_rows}
-    purchase_counts_by_token = get_kc_purchase_counts(
+    purchase_counts_by_token = get_kc_purchase_counts_for_usage_rows(
+        usage_rows,
         date_from=usage_date_from,
         date_to=usage_date_to,
     )
@@ -3474,7 +3512,7 @@ def get_kc_token_usage(kc_token, usage_date):
 
 
 def _get_effective_usage(kc_token, today, daily_limit):
-    """Returns today's usage, carrying over from the most recent previous day if limit was not reached."""
+    """Return the latest usage until an admin reset writes a newer row."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -3492,7 +3530,7 @@ def _get_effective_usage(kc_token, today, daily_limit):
     """, (kc_token, today))
     prev = cur.fetchone()
     conn.close()
-    if prev and prev["total_submit"] < daily_limit:
+    if prev:
         return prev["total_submit"]
     return 0
 
@@ -3513,11 +3551,11 @@ def increment_kc_token_usage(kc_token, usage_date, daily_limit=None):
                 ORDER BY usage_date DESC LIMIT 1
             """, (kc_token, usage_date))
             prev = cur.fetchone()
-            if prev and prev["total_submit"] < daily_limit:
+            if prev:
                 cur.execute("""
                     INSERT INTO kc_token_usage (kc_token, usage_date, total_submit)
                     VALUES (%s, %s, %s)
-                """, (kc_token, usage_date, prev["total_submit"] + 1))
+                """, (kc_token, usage_date, int(prev["total_submit"] or 0) + 1))
                 conn.commit()
                 conn.close()
                 return
@@ -4961,7 +4999,8 @@ def build_admin_dashboard_context(args):
     token_team_options = sorted({str((r.get("team") or "")).strip() for r in token_rows if str((r.get("team") or "")).strip()}, key=str.lower)
 
     usage_by_token = {row["kc_token"]: row["total_submit"] for row in usage_rows}
-    purchase_counts_by_token = get_kc_purchase_counts(
+    purchase_counts_by_token = get_kc_purchase_counts_for_usage_rows(
+        usage_rows,
         date_from=selected_usage_date_from,
         date_to=selected_usage_date_to,
     )
@@ -5091,7 +5130,8 @@ def build_team_leader_dashboard_context(args, allowed_kc_tokens=None, viewer_nam
         date_to=selected_date_to or None,
     )
     usage_by_token = {row["kc_token"]: row["total_submit"] for row in usage_rows}
-    purchase_counts_by_token = get_kc_purchase_counts(
+    purchase_counts_by_token = get_kc_purchase_counts_for_usage_rows(
+        usage_rows,
         date_from=selected_date_from,
         date_to=selected_date_to,
     )
