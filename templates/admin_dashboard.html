@@ -771,129 +771,12 @@
       </table>
     </div>
 
-    <div class="section">
-      <h2>Usage (<span id="usageDateLabel">{{ usage_date }}</span>)</h2>
-      <p class="section-desc">Ringkasan pemakaian token untuk submit form utama.</p>
-      <form class="table-toolbar" id="usageToolbarForm" method="get" action="/admin">
-        <input type="hidden" name="token_filter" value="{{ selected_token_filter }}">
-        <input type="hidden" name="token_area_filter" value="{{ selected_token_area_filter }}">
-        <input type="hidden" name="token_team_filter" value="{{ selected_token_team_filter }}">
-        <input type="hidden" name="token_status_filter" value="{{ selected_token_status_filter }}">
-        <input type="hidden" name="token_last_submit_date_from" value="{{ selected_token_last_submit_date_from }}">
-        <input type="hidden" name="token_last_submit_date_to" value="{{ selected_token_last_submit_date_to }}">
-        <input type="hidden" name="token_page" value="{{ selected_token_page }}">
-        <input type="hidden" name="token_sort_by" value="{{ selected_token_sort_by }}">
-        <input type="hidden" name="token_sort_dir" value="{{ selected_token_sort_dir }}">
-        <input type="hidden" name="token_rows" value="{{ selected_token_rows }}">
-        <div class="toolbar-field">
-          <label for="usage_date_from">Dari</label>
-          <input class="input" type="date" id="usage_date_from" name="usage_date_from" value="{{ selected_usage_date_from }}">
-        </div>
-        <div class="toolbar-field">
-          <label for="usage_date_to">Sampai</label>
-          <input class="input" type="date" id="usage_date_to" name="usage_date_to" value="{{ selected_usage_date_to }}">
-        </div>
-        <div class="toolbar-field">
-          <label for="usage_activity_filter">Token Tanggal</label>
-          <select class="input" id="usage_activity_filter" name="usage_activity_filter">
-            <option value="all" {% if selected_usage_activity_filter == 'all' %}selected{% endif %}>Semua Token</option>
-            <option value="active" {% if selected_usage_activity_filter == 'active' %}selected{% endif %}>Aktif/Terpakai</option>
-          </select>
-        </div>
-        <button class="btn btn-sm" type="submit">Terapkan</button>
-        <a class="btn btn-sm btn-secondary" id="usageToolbarReset" href="/admin">Reset</a>
-        <a class="btn btn-sm btn-secondary" id="usageExportLink" href="/admin/usage/export?date_from={{ selected_usage_date_from }}&date_to={{ selected_usage_date_to }}{% if selected_usage_activity_filter == 'active' %}&active_only=1{% endif %}">Export Excel</a>
-      </form>
-      <table>
-        <thead>
-          <tr>
-            <th>Nama KC</th>
-            <th>Area</th>
-            <th>KC Token</th>
-            <th>Username</th>
-            <th>Password</th>
-            <th>Bearer Token</th>
-            <th>Submit Hari Ini</th>
-            <th>Limit</th>
-            <th>Sisa</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="usageTableBody">
-          {% for row in usage_rows %}
-          <tr>
-            <td>{{ row.kc_name }}</td>
-            <td>{{ row.token_area }}</td>
-            <td><code>{{ row.kc_token }}</code></td>
-            <td>{{ row.kc_username }}</td>
-            <td><code>{{ row.kc_password }}</code></td>
-            <td><code>{{ row.bearer_token_masked }}</code></td>
-            <td>{{ row.total_submit }}</td>
-            <td>{{ row.daily_limit }}</td>
-            <td>
-              {% set remaining = row.daily_limit - row.total_submit %}
-              {{ 0 if remaining < 0 else remaining }} </td>
-            <td>
-              {% if row.is_active == 1 %}
-              <span class="badge badge-active">Aktif</span>
-              {% else %}
-              <span class="badge badge-inactive">Nonaktif</span>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-          {% if not usage_rows %}
-          <tr>
-            <td colspan="10">Belum ada data usage.</td>
-          </tr>
-          {% endif %}
-        </tbody>
-      </table>
-    </div>
-
-    <div class="section">
-      <h2>10 Submit Terbaru</h2>
-      <p class="section-desc">Ringkasan cepat untuk audit hasil submit terbaru tanpa perlu pindah halaman.</p>
-      <table>
-        <thead>
-          <tr>
-            <th>Waktu</th>
-            <th>Status</th>
-            <th>HTTP</th>
-            <th>Attempts</th>
-            <th>Nomor HP</th>
-            <th>KC Token</th>
-            <th>Customer</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in recent_submissions %}
-          <tr>
-            <td>{{ row.created_at }}</td>
-            <td>{{ row.status_local }}</td>
-            <td>{{ row.final_status_code or '-' }}</td>
-            <td>{{ row.attempt_summary }}</td>
-            <td><code>{{ row.phone_number }}</code></td>
-            <td><code>{{ row.kc_token }}</code></td>
-            <td>{{ row.request_summary.customer_name if row.request_summary else '-' }}</td>
-          </tr>
-          {% else %}
-          <tr><td colspan="7">Belum ada data submit.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
   </div>
 
   <script>
     const tokenToolbarForm = document.getElementById('tokenToolbarForm');
-    const usageToolbarForm = document.getElementById('usageToolbarForm');
     const tokenTableBody = document.getElementById('tokenTableBody');
-    const usageTableBody = document.getElementById('usageTableBody');
     const tokenFilterHint = document.getElementById('tokenFilterHint');
-    const usageDateLabel = document.getElementById('usageDateLabel');
-    const usageExportLink = document.getElementById('usageExportLink');
     const tokenFullExportLink = document.getElementById('tokenFullExportLink');
     const ajaxMessage = document.getElementById('dashboardAjaxMessage');
     const resetAllUsageTodayForm = document.getElementById('resetAllUsageTodayForm');
@@ -917,7 +800,7 @@
     }
 
     function setLoading(isLoading) {
-      [tokenToolbarForm, usageToolbarForm, tokenTableBody, usageTableBody, resetAllUsageTodayForm, activateAllTokensForm, deactivateAllTokensForm, tokenBulkToolbar]
+      [tokenToolbarForm, tokenTableBody, resetAllUsageTodayForm, activateAllTokensForm, deactivateAllTokensForm, tokenBulkToolbar]
         .filter(Boolean)
         .forEach((el) => el.classList.toggle('is-loading', isLoading));
     }
@@ -938,24 +821,10 @@
       }, 2800);
     }
 
-    function syncUsageHiddenFields() {
-      const mappings = ['token_filter', 'token_area_filter', 'token_team_filter', 'token_status_filter', 'token_last_submit_date_from', 'token_last_submit_date_to', 'token_page', 'token_sort_by', 'token_sort_dir', 'token_rows'];
-      mappings.forEach((name) => {
-        const tokenInput = tokenToolbarForm.elements[name];
-        const usageInput = usageToolbarForm.elements[name];
-        if (tokenInput && usageInput) usageInput.value = tokenInput.value;
-      });
-    }
-
     function buildDashboardQuery() {
-      syncUsageHiddenFields();
       const params = new URLSearchParams();
       ['token_filter', 'token_area_filter', 'token_team_filter', 'token_status_filter', 'token_last_submit_date_from', 'token_last_submit_date_to', 'token_page', 'token_sort_by', 'token_sort_dir', 'token_rows'].forEach((name) => {
         const value = tokenToolbarForm.elements[name]?.value ?? '';
-        if (value) params.set(name, value);
-      });
-      ['usage_date_from', 'usage_date_to', 'usage_activity_filter'].forEach((name) => {
-        const value = usageToolbarForm.elements[name]?.value ?? '';
         if (value) params.set(name, value);
       });
       return params;
@@ -968,14 +837,6 @@
     }
 
     function updateExportLink(params) {
-      const exportParams = new URLSearchParams();
-      const dateFrom = params.get('usage_date_from') || '';
-      const dateTo = params.get('usage_date_to') || '';
-      const activityFilter = params.get('usage_activity_filter') || 'all';
-      if (dateFrom) exportParams.set('date_from', dateFrom);
-      if (dateTo) exportParams.set('date_to', dateTo);
-      if (activityFilter === 'active') exportParams.set('active_only', '1');
-      usageExportLink.href = '/admin/usage/export' + (exportParams.toString() ? '?' + exportParams.toString() : '');
       tokenFullExportLink.href = '/admin/tokens/export-excel' + (params.toString() ? '?' + params.toString() : '');
     }
 
@@ -1043,34 +904,6 @@
       updateTokenSelectionState();
     }
 
-    function renderUsageRows(rows) {
-      if (!rows.length) {
-        usageTableBody.innerHTML = '<tr><td colspan="10">Belum ada data usage.</td></tr>';
-        return;
-      }
-
-      usageTableBody.innerHTML = rows.map((row) => {
-        const remaining = Math.max(0, Number(row.daily_limit || 0) - Number(row.total_submit || 0));
-        const statusBadge = row.is_active === 1
-          ? '<span class="badge badge-active">Aktif</span>'
-          : '<span class="badge badge-inactive">Nonaktif</span>';
-        return `
-          <tr>
-            <td>${escapeHtml(row.kc_name)}</td>
-            <td>${escapeHtml(row.token_area)}</td>
-            <td><code>${escapeHtml(row.kc_token)}</code></td>
-            <td>${escapeHtml(row.kc_username)}</td>
-            <td><code>${escapeHtml(row.kc_password)}</code></td>
-            <td><code>${escapeHtml(row.bearer_token_masked)}</code></td>
-            <td>${escapeHtml(row.total_submit)}</td>
-            <td>${escapeHtml(row.daily_limit)}</td>
-            <td>${remaining}</td>
-            <td>${statusBadge}</td>
-          </tr>
-        `;
-      }).join('');
-    }
-
     function renderDashboard(data, params) {
       document.getElementById('tokenStatsTotal').textContent = data.total_tokens;
       document.getElementById('tokenStatsActive').textContent = data.active_tokens;
@@ -1087,15 +920,8 @@
       tokenToolbarForm.elements.token_rows.value = data.selected_token_rows || '10';
       tokenToolbarForm.elements.token_page.value = data.selected_token_page || '1';
 
-      usageToolbarForm.elements.usage_date_from.value = data.selected_usage_date_from || '';
-      usageToolbarForm.elements.usage_date_to.value = data.selected_usage_date_to || '';
-      usageToolbarForm.elements.usage_activity_filter.value = data.selected_usage_activity_filter || 'all';
-      syncUsageHiddenFields();
-
       tokenFilterHint.textContent = `Menampilkan ${data.token_visible_count} dari ${data.token_filtered_count} token hasil filter.`;
-      usageDateLabel.textContent = data.usage_date;
       renderTokenRows(data.token_rows || []);
-      renderUsageRows(data.usage_rows || []);
       const tokenPage = Number(data.selected_token_page || 1);
       const tokenTotalPages = Number(data.token_total_pages || 1);
       tokenPageHint.textContent = `Halaman ${tokenPage} dari ${tokenTotalPages}`;
@@ -1180,11 +1006,6 @@
       refreshDashboardData();
     });
 
-    usageToolbarForm.addEventListener('submit', (event) => {
-      event.preventDefault();
-      refreshDashboardData();
-    });
-
     document.getElementById('tokenToolbarReset').addEventListener('click', (event) => {
       event.preventDefault();
       tokenToolbarForm.reset();
@@ -1198,14 +1019,6 @@
       tokenToolbarForm.elements.token_sort_by.value = 'kc_name';
       tokenToolbarForm.elements.token_sort_dir.value = 'asc';
       tokenToolbarForm.elements.token_rows.value = '10';
-      refreshDashboardData();
-    });
-
-    document.getElementById('usageToolbarReset').addEventListener('click', (event) => {
-      event.preventDefault();
-      usageToolbarForm.elements.usage_date_from.value = '';
-      usageToolbarForm.elements.usage_date_to.value = '';
-      usageToolbarForm.elements.usage_activity_filter.value = 'all';
       refreshDashboardData();
     });
 
@@ -1459,10 +1272,6 @@
       const currentPage = Math.max(1, Number(tokenToolbarForm.elements.token_page.value || 1));
       tokenToolbarForm.elements.token_page.value = String(currentPage + 1);
       refreshDashboardData();
-    });
-
-    ['usage_date_from', 'usage_date_to', 'usage_activity_filter'].forEach((name) => {
-      usageToolbarForm.elements[name].addEventListener('change', () => refreshDashboardData());
     });
 
     updateExportLink(buildDashboardQuery());

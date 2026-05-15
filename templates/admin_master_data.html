@@ -164,8 +164,90 @@
       color: #334155;
     }
 
+    .lookup-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 14px;
+    }
+
+    .lookup-toolbar {
+      display: grid;
+      grid-template-columns: minmax(160px, 1fr) auto auto;
+      gap: 8px;
+      margin: 12px 0;
+      align-items: center;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 10px 8px;
+      border-bottom: 1px solid #e2e8f0;
+      vertical-align: middle;
+    }
+
+    th {
+      color: #334155;
+      font-size: 12px;
+      background: #f8fafc;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .status-active {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .status-inactive {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .btn-mini {
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 12px;
+    }
+
+    .toast {
+      position: fixed;
+      right: 18px;
+      top: 18px;
+      z-index: 20;
+      max-width: min(420px, calc(100vw - 36px));
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: #dcfce7;
+      border: 1px solid #86efac;
+      color: #166534;
+      box-shadow: 0 16px 38px rgba(15, 23, 42, 0.16);
+      display: none;
+    }
+
+    .toast.show {
+      display: block;
+    }
+
     @media (max-width: 760px) {
       .import-form {
+        grid-template-columns: 1fr;
+      }
+
+      .lookup-toolbar {
         grid-template-columns: 1fr;
       }
     }
@@ -207,6 +289,90 @@
     </div>
 
     <div class="section">
+      <h2>Cek Master Data</h2>
+      <p>Cari BUMO atau KC Area dari database lokal, lalu copy ID dan namanya jika perlu.</p>
+      <div class="lookup-grid">
+        <div>
+          <h3>BUMO</h3>
+          <form class="lookup-toolbar" method="get" action="/admin/master-data">
+            <input class="input" type="text" name="bumo_q" value="{{ bumo_query }}" placeholder="Cari nama BUMO">
+            <input type="hidden" name="kc_area_q" value="{{ kc_area_query }}">
+            <button class="btn btn-mini" type="submit">Cari</button>
+            <button class="btn btn-secondary btn-mini" type="button" data-copy-table="bumo">Copy Semua</button>
+          </form>
+          <div class="hint">Menampilkan maksimal 100 BUMO. Jika ID belum tersedia, sistem memakai nama BUMO sebagai fallback.</div>
+          <table>
+            <thead>
+              <tr>
+                <th>ID BUMO</th>
+                <th>Nama BUMO</th>
+                <th>Status</th>
+                <th>Copy</th>
+              </tr>
+            </thead>
+            <tbody data-copy-source="bumo">
+              {% for row in bumo_rows %}
+              <tr>
+                <td><code data-copy-id>{{ row.id }}</code></td>
+                <td data-copy-name>{{ row.name }}</td>
+                <td>
+                  {% if row.is_active == 1 %}
+                  <span class="status status-active">Aktif</span>
+                  {% else %}
+                  <span class="status status-inactive">Nonaktif</span>
+                  {% endif %}
+                </td>
+                <td><button class="btn btn-secondary btn-mini" type="button" data-copy-row>Copy</button></td>
+              </tr>
+              {% else %}
+              <tr><td colspan="4">Data BUMO tidak ditemukan.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <h3>KC Area</h3>
+          <form class="lookup-toolbar" method="get" action="/admin/master-data">
+            <input type="hidden" name="bumo_q" value="{{ bumo_query }}">
+            <input class="input" type="text" name="kc_area_q" value="{{ kc_area_query }}" placeholder="Cari ID atau nama area">
+            <button class="btn btn-mini" type="submit">Cari</button>
+            <button class="btn btn-secondary btn-mini" type="button" data-copy-table="kc-area">Copy Semua</button>
+          </form>
+          <div class="hint">Menampilkan maksimal 100 KC Area dari hasil pencarian.</div>
+          <table>
+            <thead>
+              <tr>
+                <th>ID Area</th>
+                <th>Nama Area</th>
+                <th>Status</th>
+                <th>Copy</th>
+              </tr>
+            </thead>
+            <tbody data-copy-source="kc-area">
+              {% for row in kc_area_rows %}
+              <tr>
+                <td><code data-copy-id>{{ row.id }}</code></td>
+                <td data-copy-name>{{ row.name }}</td>
+                <td>
+                  {% if row.is_active == 1 %}
+                  <span class="status status-active">Aktif</span>
+                  {% else %}
+                  <span class="status status-inactive">Nonaktif</span>
+                  {% endif %}
+                </td>
+                <td><button class="btn btn-secondary btn-mini" type="button" data-copy-row>Copy</button></td>
+              </tr>
+              {% else %}
+              <tr><td colspan="4">Data KC Area tidak ditemukan.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
       <h2>Load dari API</h2>
       <p>Gunakan ini saat ada update BUMO atau KC Area. Paste bearer token yang masih aktif, lalu sistem menyimpan hasilnya ke database lokal.</p>
       <form class="sync-form" method="post" action="/admin/master-data/sync">
@@ -236,6 +402,65 @@
       </div>
     </div>
   </div>
+  <div class="toast" id="copyToast"></div>
+  <script>
+    const copyToast = document.getElementById('copyToast');
+    let copyToastTimer = null;
+
+    function showCopyToast(message) {
+      if (copyToastTimer) clearTimeout(copyToastTimer);
+      copyToast.textContent = message;
+      copyToast.classList.add('show');
+      copyToastTimer = setTimeout(() => copyToast.classList.remove('show'), 2200);
+    }
+
+    async function copyText(text) {
+      if (!navigator.clipboard || !window.isSecureContext) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        textarea.remove();
+        return;
+      }
+      await navigator.clipboard.writeText(text);
+    }
+
+    function getRowCopyText(row) {
+      const id = row.querySelector('[data-copy-id]')?.textContent.trim() || '';
+      const name = row.querySelector('[data-copy-name]')?.textContent.trim() || '';
+      return id && name ? `${id}\t${name}` : '';
+    }
+
+    document.addEventListener('click', async (event) => {
+      const rowButton = event.target.closest('[data-copy-row]');
+      const tableButton = event.target.closest('[data-copy-table]');
+      if (!rowButton && !tableButton) return;
+
+      try {
+        if (rowButton) {
+          const text = getRowCopyText(rowButton.closest('tr'));
+          if (!text) return;
+          await copyText(text);
+          showCopyToast('ID dan nama berhasil dicopy.');
+          return;
+        }
+
+        const sourceName = tableButton.dataset.copyTable || '';
+        const rows = Array.from(document.querySelectorAll(`[data-copy-source="${sourceName}"] tr`));
+        const lines = rows.map(getRowCopyText).filter(Boolean);
+        if (!lines.length) return;
+        await copyText(lines.join('\n'));
+        showCopyToast(`${lines.length} data berhasil dicopy.`);
+      } catch (err) {
+        showCopyToast('Gagal copy ke clipboard.');
+      }
+    });
+  </script>
 </body>
 
 </html>

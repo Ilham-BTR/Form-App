@@ -341,10 +341,16 @@ def init_db():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS bumo_master (
             name TEXT PRIMARY KEY,
+            bumo_id TEXT NOT NULL DEFAULT '',
             is_active INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT '',
             updated_at TEXT NOT NULL DEFAULT ''
         )
+    """)
+
+    cur.execute("""
+        ALTER TABLE bumo_master
+        ADD COLUMN IF NOT EXISTS bumo_id TEXT NOT NULL DEFAULT ''
     """)
 
     cur.execute("""
@@ -2394,6 +2400,70 @@ def get_master_data_counts():
     }
 
 
+def get_master_data_lookup_rows(bumo_query="", kc_area_query="", limit=100):
+    safe_limit = max(1, min(int(limit or 100), 300))
+    bumo_search = str(bumo_query or "").strip()
+    area_search = str(kc_area_query or "").strip()
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    bumo_params = []
+    bumo_where = "WHERE 1=1"
+    if bumo_search:
+        bumo_where += " AND name ILIKE %s"
+        bumo_params.append(f"%{bumo_search}%")
+    bumo_params.append(safe_limit)
+    cur.execute(
+        f"""
+        SELECT name, bumo_id, is_active
+        FROM bumo_master
+        {bumo_where}
+        ORDER BY is_active DESC, name ASC
+        LIMIT %s
+        """,
+        bumo_params,
+    )
+    bumo_rows = cur.fetchall()
+
+    area_params = []
+    area_where = "WHERE 1=1"
+    if area_search:
+        area_where += " AND (area_id ILIKE %s OR area_name ILIKE %s)"
+        area_params.extend([f"%{area_search}%", f"%{area_search}%"])
+    area_params.append(safe_limit)
+    cur.execute(
+        f"""
+        SELECT area_id, area_name, is_active
+        FROM kc_area_master
+        {area_where}
+        ORDER BY is_active DESC, area_name ASC, area_id ASC
+        LIMIT %s
+        """,
+        area_params,
+    )
+    area_rows = cur.fetchall()
+
+    conn.close()
+    return {
+        "bumo_rows": [
+            {
+                "id": row["bumo_id"] or row["name"] or "",
+                "name": row["name"] or "",
+                "is_active": int(row["is_active"] or 0),
+            }
+            for row in bumo_rows
+        ],
+        "kc_area_rows": [
+            {
+                "id": row["area_id"] or "",
+                "name": row["area_name"] or "",
+                "is_active": int(row["is_active"] or 0),
+            }
+            for row in area_rows
+        ],
+    }
+
+
 def get_master_data_cache_version():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -2442,21 +2512,25 @@ def upsert_master_data_options(bumo_options, kc_area_options):
     cur = conn.cursor()
     try:
         for item in bumo_options:
-            name = str(item.get("value") or item.get("label") or "").strip()
+            name = str(item.get("name") or item.get("label") or "").strip()
             if not name:
                 continue
+            bumo_id = str(item.get("id") or item.get("value") or "").strip()
+            if bumo_id == name:
+                bumo_id = ""
             cur.execute("SELECT 1 FROM bumo_master WHERE name = %s", (name,))
             existing = cur.fetchone()
             cur.execute(
                 """
-                INSERT INTO bumo_master (name, is_active, created_at, updated_at)
-                VALUES (%s, 1, %s, %s)
+                INSERT INTO bumo_master (name, bumo_id, is_active, created_at, updated_at)
+                VALUES (%s, %s, 1, %s, %s)
                 ON CONFLICT (name)
                 DO UPDATE SET
+                    bumo_id = COALESCE(NULLIF(EXCLUDED.bumo_id, ''), bumo_master.bumo_id),
                     is_active = 1,
                     updated_at = EXCLUDED.updated_at
                 """,
-                (name, now_str, now_str),
+                (name, bumo_id, now_str, now_str),
             )
             if existing:
                 updated_bumo += 1
@@ -2553,6 +2627,7 @@ def import_master_data(uploaded_file, master_type):
 
     header_aliases = {
         "bumo": {
+            "bumo_id": {"id", "bumo id", "id bumo", "value", "kode"},
             "name": {"name", "nama", "bumo", "nama bumo", "current bumo"},
             "is_active": {"is active", "aktif", "active", "status"},
         },
@@ -2598,6 +2673,7 @@ def import_master_data(uploaded_file, master_type):
             try:
                 is_active = parse_optional_active_value(get_import_cell(row, header_index, "is_active"), 1)
                 if current_type == "bumo":
+                    bumo_id = str(get_import_cell(row, header_index, "bumo_id") or "").strip()
                     name = str(get_import_cell(row, header_index, "name") or "").strip()
                     if not name:
                         raise ValueError("Nama BUMO kosong.")
@@ -2606,14 +2682,15 @@ def import_master_data(uploaded_file, master_type):
                     existing = cur.fetchone()
                     cur.execute(
                         """
-                        INSERT INTO bumo_master (name, is_active, created_at, updated_at)
-                        VALUES (%s, %s, %s, %s)
+                        INSERT INTO bumo_master (name, bumo_id, is_active, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s, %s)
                         ON CONFLICT (name)
                         DO UPDATE SET
+                            bumo_id = COALESCE(NULLIF(EXCLUDED.bumo_id, ''), bumo_master.bumo_id),
                             is_active = EXCLUDED.is_active,
                             updated_at = EXCLUDED.updated_at
                         """,
-                        (name, int(is_active), now_str, now_str),
+                        (name, bumo_id, int(is_active), now_str, now_str),
                     )
                 else:
                     area_id = str(get_import_cell(row, header_index, "area_id") or "").strip()
@@ -4122,7 +4199,16 @@ def fetch_bumo_options(bearer_token):
 
     data = response.json()
     items = data["data"]["data"]
-    return [{"label": item["name"], "value": item["name"]} for item in items]
+    return [
+        {
+            "id": str(item.get("id") or item.get("value") or "").strip(),
+            "name": str(item.get("name") or "").strip(),
+            "label": str(item.get("name") or "").strip(),
+            "value": str(item.get("id") or item.get("value") or item.get("name") or "").strip(),
+        }
+        for item in items
+        if str(item.get("name") or "").strip()
+    ]
 
 
 def fetch_kc_area_options(bearer_token):
@@ -4975,7 +5061,6 @@ def build_admin_dashboard_context(args):
         date_from=selected_usage_date_from or None,
         date_to=selected_usage_date_to or None,
     )
-    recent_submissions = get_recent_submission_attempts(limit=10, include_response_text=False)
 
     selected_token_filter = (args.get("token_filter") or "").strip()
     selected_token_status_filter = (args.get("token_status_filter") or "").strip().lower()
@@ -5070,7 +5155,6 @@ def build_admin_dashboard_context(args):
         "active_tokens": active_tokens,
         "total_submit_today": total_submit_today,
         "submission_counts": submission_counts,
-        "recent_submissions": recent_submissions,
         "token_import_message": args.get("token_import_message", ""),
         "token_import_error": args.get("token_import_error", ""),
         "selected_token_filter": selected_token_filter,
@@ -5950,6 +6034,8 @@ def admin_export_batch_bearer_tokens(export_id):
 def admin_master_data():
     error = request.args.get("error", "")
     success = request.args.get("success", "")
+    bumo_query = (request.args.get("bumo_q") or "").strip()
+    kc_area_query = (request.args.get("kc_area_q") or "").strip()
 
     if request.method == "POST":
         try:
@@ -5971,11 +6057,20 @@ def admin_master_data():
             logger.exception("admin_master_data import error")
             error = str(e)
 
+    lookup_rows = get_master_data_lookup_rows(
+        bumo_query=bumo_query,
+        kc_area_query=kc_area_query,
+        limit=100,
+    )
     return render_template(
         "admin_master_data.html",
         error=error,
         success=success,
         counts=get_master_data_counts(),
+        bumo_query=bumo_query,
+        kc_area_query=kc_area_query,
+        bumo_rows=lookup_rows["bumo_rows"],
+        kc_area_rows=lookup_rows["kc_area_rows"],
     )
 
 
