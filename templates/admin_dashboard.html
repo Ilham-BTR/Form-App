@@ -682,6 +682,7 @@
         <button class="btn btn-sm btn-muted" type="button" data-bulk-action="deactivate">Nonaktifkan Terpilih</button>
         <button class="btn btn-sm btn-warning" type="button" data-bulk-action="reset_usage_today">Reset Terpakai Terpilih</button>
         <button class="btn btn-sm" type="button" data-bulk-action="refresh_bearer">Refresh Token Terpilih</button>
+        <button class="btn btn-sm btn-secondary" type="button" data-copy-selected>Copy Terpilih</button>
         <button class="btn btn-sm btn-secondary" type="button" data-export-format="txt">Export TXT Terpilih</button>
         <button class="btn btn-sm btn-secondary" type="button" data-export-format="xlsx">Export Excel Terpilih</button>
         <button class="btn btn-sm btn-danger" type="button" data-bulk-action="delete">Hapus Akun Terpilih</button>
@@ -1333,6 +1334,57 @@
       }
     }
 
+    async function handleCopySelectedTokens(button) {
+      const kcTokens = getSelectedTokens();
+      if (!kcTokens.length) {
+        showMessage('Pilih akun dulu.', true);
+        return;
+      }
+
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = '...';
+      try {
+        const res = await fetch('/admin/tokens/export-selected', {
+          method: 'POST',
+          headers: {
+            'Accept': 'text/plain',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: JSON.stringify({ format: 'txt', kc_tokens: kcTokens })
+        });
+        if (!res.ok) {
+          let message = 'Gagal menyalin akun terpilih.';
+          try {
+            const data = await res.json();
+            message = data.error || message;
+          } catch (err) {}
+          throw new Error(message);
+        }
+        const text = await res.text();
+        if (!navigator.clipboard || !window.isSecureContext) {
+          const textarea = document.createElement('textarea');
+          textarea.value = text;
+          textarea.setAttribute('readonly', '');
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          textarea.remove();
+        } else {
+          await navigator.clipboard.writeText(text);
+        }
+        showMessage(`${kcTokens.length} akun terpilih berhasil disalin ke clipboard.`);
+      } catch (err) {
+        showMessage(err.message || 'Gagal menyalin akun terpilih.', true);
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
+    }
+
     tokenSelectAll.addEventListener('change', () => {
       tokenTableBody.querySelectorAll('.token-select').forEach((input) => {
         input.checked = tokenSelectAll.checked;
@@ -1341,6 +1393,11 @@
     });
 
     tokenBulkToolbar.addEventListener('click', (event) => {
+      const copyButton = event.target.closest('button[data-copy-selected]');
+      if (copyButton) {
+        handleCopySelectedTokens(copyButton);
+        return;
+      }
       const exportButton = event.target.closest('button[data-export-format]');
       if (exportButton) {
         handleSelectedTokenExport(exportButton, exportButton.dataset.exportFormat || 'txt');
