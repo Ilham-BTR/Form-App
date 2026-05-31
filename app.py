@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 load_dotenv()
-from flask import Flask, render_template, request, redirect, url_for, jsonify, session, Response
+from flask import Flask, render_template, request, redirect, url_for, jsonify, session, Response, make_response
 import hmac
 import hashlib
 import json
@@ -98,6 +98,22 @@ DEFAULT_BUMO_ENDPOINT = os.environ.get(
 DEFAULT_KC_AREA_ENDPOINT = os.environ.get(
     "DEFAULT_KC_AREA_ENDPOINT",
     "/api/kc-areas",
+).strip()
+
+def get_bool_env(name: str, default: bool = False) -> bool:
+    raw_value = os.environ.get(name, "").strip().lower()
+    if not raw_value:
+        return default
+    return raw_value in ("1", "true", "on", "yes", "y", "aktif")
+
+
+# Mode maintenance / pause: set MAINTENANCE_MODE=on di Railway untuk mematikan
+# akses publik. Endpoint /health tetap dibiarkan terbuka supaya healthcheck
+# Railway tidak gagal dan container tidak ikut di-restart terus-menerus.
+MAINTENANCE_MODE = get_bool_env("MAINTENANCE_MODE", default=False)
+MAINTENANCE_MESSAGE = os.environ.get(
+    "MAINTENANCE_MESSAGE",
+    "Aplikasi sedang dijeda sementara untuk pemeliharaan. Silakan kembali lagi nanti.",
 ).strip()
 
 PRODUCT_PACK_OPTIONS = ["0 pack", "1 pack", "2 pack"]
@@ -4436,6 +4452,28 @@ def build_submit_success_message(customer_name, phone_number, venue, final_state
         lines.extend(["", "Kuota harian token ini sudah habis, token otomatis dinonaktifkan."])
 
     return "\n".join(lines)
+
+
+@app.before_request
+def enforce_maintenance_mode():
+    if not MAINTENANCE_MODE:
+        return None
+    # Healthcheck Railway harus tetap lolos agar container tidak di-restart.
+    if request.path == "/health":
+        return None
+    if wants_json_response():
+        body = jsonify({
+            "status": "maintenance",
+            "message": MAINTENANCE_MESSAGE,
+        })
+        response = make_response(body, 503)
+    else:
+        response = make_response(
+            render_template("maintenance.html", message=MAINTENANCE_MESSAGE),
+            503,
+        )
+    response.headers["Retry-After"] = "3600"
+    return response
 
 
 @app.route("/health")
