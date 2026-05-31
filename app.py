@@ -110,7 +110,7 @@ def get_bool_env(name: str, default: bool = False) -> bool:
 # Mode maintenance / pause: set MAINTENANCE_MODE=on di Railway untuk mematikan
 # akses publik. Endpoint /health tetap dibiarkan terbuka supaya healthcheck
 # Railway tidak gagal dan container tidak ikut di-restart terus-menerus.
-MAINTENANCE_MODE = get_bool_env("MAINTENANCE_MODE", default=False)
+MAINTENANCE_MODE = get_bool_env("MAINTENANCE_MODE", default=True)
 MAINTENANCE_MESSAGE = os.environ.get(
     "MAINTENANCE_MESSAGE",
     "Aplikasi sedang dijeda sementara untuk pemeliharaan. Silakan kembali lagi nanti.",
