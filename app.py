@@ -2417,8 +2417,8 @@ def get_master_data_counts():
     }
 
 
-def get_master_data_lookup_rows(bumo_query="", kc_area_query="", limit=100):
-    safe_limit = max(1, min(int(limit or 100), 300))
+def get_master_data_lookup_rows(bumo_query="", kc_area_query="", limit=5):
+    safe_limit = max(1, min(int(limit or 5), 50))
     bumo_search = str(bumo_query or "").strip()
     area_search = str(kc_area_query or "").strip()
     conn = get_db_connection()
@@ -6099,7 +6099,7 @@ def admin_master_data():
     lookup_rows = get_master_data_lookup_rows(
         bumo_query=bumo_query,
         kc_area_query=kc_area_query,
-        limit=100,
+        limit=5,
     )
     return render_template(
         "admin_master_data.html",
